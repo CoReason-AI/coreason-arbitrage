@@ -8,6 +8,7 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
+import threading
 from typing import Optional
 
 from coreason_arbitrage.utils.logger import logger
@@ -15,12 +16,15 @@ from coreason_arbitrage.utils.logger import logger
 
 class ArbitrageEngine:
     _instance: Optional["ArbitrageEngine"] = None
+    _lock: threading.Lock = threading.Lock()
     _initialized: bool
 
     def __new__(cls) -> "ArbitrageEngine":
         if cls._instance is None:
-            cls._instance = super(ArbitrageEngine, cls).__new__(cls)
-            cls._instance._initialized = False
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super(ArbitrageEngine, cls).__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
 
     def __init__(self) -> None:
