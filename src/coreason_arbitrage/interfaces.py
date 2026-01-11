@@ -1,8 +1,9 @@
-from typing import List, Optional, Protocol
+from typing import List, Optional, Protocol, runtime_checkable
 
 from coreason_arbitrage.models import ModelDefinition
 
 
+@runtime_checkable
 class BudgetClient(Protocol):
     """
     Protocol for interacting with the Budget service (coreason-budget).
@@ -22,6 +23,7 @@ class BudgetClient(Protocol):
         ...
 
 
+@runtime_checkable
 class AuditClient(Protocol):
     """
     Protocol for interacting with the Audit service (coreason-veritas).
@@ -41,6 +43,7 @@ class AuditClient(Protocol):
         ...
 
 
+@runtime_checkable
 class ModelFoundryClient(Protocol):
     """
     Protocol for interacting with the Model Foundry service (coreason-model-foundry).
