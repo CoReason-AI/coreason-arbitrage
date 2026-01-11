@@ -18,6 +18,16 @@ from coreason_arbitrage.load_balancer import LoadBalancer
 from coreason_arbitrage.registry import ModelRegistry
 
 
+def reset_engine(engine: ArbitrageEngine) -> None:
+    engine.registry.clear()
+    if hasattr(engine, "load_balancer"):
+        engine.load_balancer._failures.clear()
+        engine.load_balancer._cooldown_until.clear()
+    engine.budget_client = None
+    engine.audit_client = None
+    engine.foundry_client = None
+
+
 def test_arbitrage_engine_singleton() -> None:
     engine1 = ArbitrageEngine()
     engine2 = ArbitrageEngine()
@@ -27,6 +37,8 @@ def test_arbitrage_engine_singleton() -> None:
 
 def test_arbitrage_engine_initialization() -> None:
     engine = ArbitrageEngine()
+    reset_engine(engine)  # Reset from previous tests
+
     assert isinstance(engine.load_balancer, LoadBalancer)
     assert isinstance(engine.registry, ModelRegistry)
     assert engine.budget_client is None
@@ -36,6 +48,7 @@ def test_arbitrage_engine_initialization() -> None:
 
 def test_arbitrage_engine_configure() -> None:
     engine = ArbitrageEngine()
+    reset_engine(engine)
 
     mock_budget = MagicMock(spec=BudgetClient)
     mock_audit = MagicMock(spec=AuditClient)

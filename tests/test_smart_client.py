@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from coreason_arbitrage.engine import ArbitrageEngine
 from coreason_arbitrage.interfaces import BudgetClient
 from coreason_arbitrage.models import ModelDefinition, ModelTier
@@ -7,10 +9,10 @@ from coreason_arbitrage.smart_client import SmartClient
 
 
 def reset_engine(engine: ArbitrageEngine) -> None:
-    # engine._models = {}  # _models is not in engine, it's in registry
     engine.registry.clear()
-    engine.load_balancer._failures.clear()
-    engine.load_balancer._cooldown_until.clear()
+    if hasattr(engine, "load_balancer"):
+        engine.load_balancer._failures.clear()
+        engine.load_balancer._cooldown_until.clear()
     engine.budget_client = None
     engine.audit_client = None
     engine.foundry_client = None
@@ -164,12 +166,29 @@ def test_smart_client_routing_failure_logging() -> None:
     # Do NOT register any models -> routing will fail
     client = engine.get_client()
 
-    import pytest
-
     with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
         with pytest.raises(RuntimeError, match="No healthy models"):
             client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
 
         # Verify logger.error was called with the routing exception
-        args, _ = mock_logger.error.call_args_list[-1]
-        assert "Routing failed:" in args[0]
+        found = False
+        for call in mock_logger.error.call_args_list:
+            args, _ = call
+            if "Routing failed" in args[0]:  # Match partial string
+                found = True
+                break
+
+        assert found, "Expected 'Routing failed' log message not found"
+
+
+def test_smart_client_zero_retries() -> None:
+    engine = ArbitrageEngine()
+    reset_engine(engine)
+    engine.configure(MagicMock(spec=BudgetClient), MagicMock(), MagicMock())
+    engine.budget_client.check_allowance.return_value = True  # type: ignore
+
+    client = engine.get_client()
+
+    with patch("coreason_arbitrage.smart_client.MAX_RETRIES", 0):
+        with pytest.raises(RuntimeError, match="Request failed after max retries"):
+            client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])

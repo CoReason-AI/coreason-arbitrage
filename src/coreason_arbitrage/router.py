@@ -1,4 +1,7 @@
+from typing import Optional
+
 from coreason_arbitrage.interfaces import BudgetClient
+from coreason_arbitrage.load_balancer import LoadBalancer
 from coreason_arbitrage.models import ModelDefinition, ModelTier, RoutingContext
 from coreason_arbitrage.registry import ModelRegistry
 from coreason_arbitrage.utils.logger import logger
@@ -10,9 +13,15 @@ class Router:
     user budget, and available models in the registry.
     """
 
-    def __init__(self, registry: ModelRegistry, budget_client: BudgetClient) -> None:
+    def __init__(
+        self,
+        registry: ModelRegistry,
+        budget_client: BudgetClient,
+        load_balancer: Optional[LoadBalancer] = None,
+    ) -> None:
         self.registry = registry
         self.budget_client = budget_client
+        self.load_balancer = load_balancer
 
     def route(self, context: RoutingContext, user_id: str) -> ModelDefinition:
         """
@@ -27,6 +36,7 @@ class Router:
            - If user budget < 10% (0.1) AND Tier is Tier 2, downgrade to Tier 1.
         3. Select Model:
            - Query Registry for the target Tier.
+           - Filter by provider health (LoadBalancer).
            - Return the first healthy model.
            - If no model found in target Tier, try fallback (logic TBD, for now raise Error).
         """
@@ -61,23 +71,20 @@ class Router:
 
         # 3. Select Model from Registry
         candidates = self.registry.list_models(tier=target_tier)
+
+        # Filter by static health check
         healthy_candidates = [m for m in candidates if m.is_healthy]
+
+        # Filter by LoadBalancer (dynamic health check)
+        if self.load_balancer:
+            healthy_candidates = [m for m in healthy_candidates if self.load_balancer.is_provider_healthy(m.provider)]
 
         if not healthy_candidates:
             error_msg = f"No healthy models available for Tier: {target_tier}"
             logger.error(error_msg)
-            # In a real scenario, we might fallback to another tier here.
-            # For this atomic unit, we raise an exception as per 'Fail Open' logic
-            # might be handled by the caller, or we should implement fallback here.
-            # Spec says: "If the Router crashes, Fail Open...".
-            # But "No models" is a routing failure.
-            # Let's fail hard here so the caller knows, or maybe fallback logic belongs here?
-            # Spec 3.2 says "fallback" is in RoutingPolicy YAML (not implemented yet).
-            # I will raise an error for now.
             raise RuntimeError(error_msg)
 
         # Simple selection: Pick the first one.
-        # Future: Round robin, load based, etc.
         selected_model = healthy_candidates[0]
         logger.info(f"Routed to model: {selected_model.id} ({selected_model.provider})")
 

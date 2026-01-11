@@ -8,7 +8,7 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from litellm import completion
 
@@ -17,6 +17,8 @@ from coreason_arbitrage.gatekeeper import Gatekeeper
 from coreason_arbitrage.models import ModelDefinition
 from coreason_arbitrage.router import Router
 from coreason_arbitrage.utils.logger import logger
+
+MAX_RETRIES = 3
 
 
 class CompletionsWrapper:
@@ -31,7 +33,13 @@ class CompletionsWrapper:
         if self.engine.budget_client is None:
             logger.warning("ArbitrageEngine not configured with BudgetClient. Router might fail.")
 
-        self.router = Router(self.engine.registry, self.engine.budget_client)  # type: ignore
+        # Inject LoadBalancer into Router for dynamic health checks
+        # We ignore type for budget_client as it might be None but we handle it in Router or assume configured
+        self.router = Router(
+            self.engine.registry,
+            self.engine.budget_client,  # type: ignore
+            self.engine.load_balancer,
+        )
 
     def create(self, messages: List[Dict[str, str]], **kwargs: Any) -> Any:
         """
@@ -66,82 +74,70 @@ class CompletionsWrapper:
         routing_context = self.gatekeeper.classify(prompt)
         logger.info(f"Classified request: {routing_context}")
 
-        # 3. Routing
-        try:
-            model_def: ModelDefinition = self.router.route(routing_context, user_id)
-        except Exception as e:
-            logger.error(f"Routing failed: {e}")
-            raise
+        # Retry Loop
+        last_exception: Optional[Exception] = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                # 3. Routing (Inside loop to pick up new healthy models)
+                model_def: ModelDefinition = self.router.route(routing_context, user_id)
+                logger.info(f"Selected model (Attempt {attempt + 1}): {model_def.id} ({model_def.provider})")
 
-        logger.info(f"Selected model: {model_def.id} ({model_def.provider})")
+                # 4. Execution
+                response = completion(model=model_def.id, messages=messages, **kwargs)
 
-        # 4. Execution (with Load Balancer & Retry)
-        # Note: litellm handles retries internally if configured, but we want to track provider health explicitly.
-        # We wrap the litellm call.
+                # Record Success
+                self.engine.load_balancer.record_success(model_def.provider)
 
-        try:
-            # We construct the call. litellm uses 'model' argument.
-            # model_def.id is e.g. "azure/gpt-4o" which litellm understands.
+                # 5. Audit Logging
+                if self.engine.audit_client:
+                    try:
+                        usage = response.usage
+                        input_tokens = usage.prompt_tokens
+                        output_tokens = usage.completion_tokens
 
-            response = completion(model=model_def.id, messages=messages, **kwargs)
+                        # Calculate cost (simplified)
+                        cost = (input_tokens / 1000 * model_def.cost_per_1k_input) + (
+                            output_tokens / 1000 * model_def.cost_per_1k_output
+                        )
 
-            # Record Success
-            self.engine.load_balancer.record_success(model_def.provider)
+                        self.engine.audit_client.log_transaction(
+                            user_id=user_id,
+                            model_id=model_def.id,
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                            cost=cost,
+                        )
+                    except Exception as e:
+                        logger.error(f"Audit logging failed: {e}")
 
-            # 5. Audit Logging
-            if self.engine.audit_client:
-                try:
-                    usage = response.usage
-                    input_tokens = usage.prompt_tokens
-                    output_tokens = usage.completion_tokens
+                return response
 
-                    # Calculate cost (simplified)
-                    cost = (input_tokens / 1000 * model_def.cost_per_1k_input) + (
-                        output_tokens / 1000 * model_def.cost_per_1k_output
-                    )
+            except RuntimeError as e:
+                # Routing failed (e.g. no healthy models)
+                logger.error(f"Routing failed on attempt {attempt + 1}: {e}")
+                last_exception = e
+                # If routing fails, it usually means no healthy models. Retrying immediately might not help
+                # unless a model recovers in milliseconds. But we respect MAX_RETRIES.
+                continue
 
-                    self.engine.audit_client.log_transaction(
-                        user_id=user_id,
-                        model_id=model_def.id,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        cost=cost,
-                    )
-                except Exception as e:
-                    logger.error(f"Audit logging failed: {e}")
+            except Exception as e:
+                # Execution failed
+                logger.error(f"Execution failed on attempt {attempt + 1}: {e}")
+                last_exception = e
 
-            return response
+                # Update LoadBalancer
+                if "model_def" in locals():
+                    self.engine.load_balancer.record_failure(model_def.provider)
 
-        except Exception as e:
-            # Record Failure
-            logger.error(f"Execution failed for {model_def.id}: {e}")
+                # Continue to next attempt
+                continue
 
-            # Check for Rate Limit or Server Errors to record failure
-            # Litellm raises specific exceptions.
-            # We assume general exception catching for now, but in prod we'd check for 429/5xx.
-            # Assuming any exception during completion (that isn't bad request) is a potential provider issue?
-            # Ideally we differentiate.
-            # For this atomic unit, we record failure for all runtime exceptions from litellm.
-            self.engine.load_balancer.record_failure(model_def.provider)
-
-            # Fail Open or Failover?
-            # PRD: "If Azure returns 5xx... mark Azure as 'Unhealthy'... Failover: Route traffic to secondary..."
-            # The Router ensures we pick a healthy model. If this one fails *now*, we mark it unhealthy.
-            # We should technically RETRY loop here or just raise and let next request pick new model.
-            # PRD says "instantly retries on AWS Bedrock".
-            # So we should probably loop here?
-            # Given "Atomic Unit" constraint, implementing a full retry loop with re-routing might be too big?
-            # But it's core requirement.
-            # Let's re-raise for now to keep this unit focused on "Execution & Audit",
-            # and maybe the retry loop is implicitly handled by the user calling again or we do it next.
-            # Actually, "Arbitrage instantly retries... without the user noticing." -> Must do it here.
-
-            # Simplification: We recorded failure. Next routing call will see it as unhealthy (if threshold reached).
-            # If we want instant retry, we need to call route() again.
-            # I will implement a basic re-try by recursing or looping?
-            # Recursing might be dangerous.
-            # Let's raise for this step to keep it atomic and safe, but note that the LB is updated.
-            raise e
+        # If exhausted retries
+        logger.error("Max retries exhausted.")
+        if last_exception:
+            raise last_exception
+        else:
+            raise RuntimeError("Request failed after max retries.")
 
 
 class ChatWrapper:
