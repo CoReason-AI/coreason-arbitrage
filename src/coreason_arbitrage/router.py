@@ -33,7 +33,10 @@ class Router:
         # 1. Determine Baseline Tier
         target_tier: ModelTier
 
-        if context.complexity >= 0.8 or context.domain == "safety_critical":
+        # Normalize domain for case-insensitive check
+        domain_lower = context.domain.lower() if context.domain else ""
+
+        if context.complexity >= 0.8 or domain_lower == "safety_critical":
             target_tier = ModelTier.TIER_3_REASONING
         elif context.complexity >= 0.4:
             target_tier = ModelTier.TIER_2_SMART

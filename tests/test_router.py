@@ -52,7 +52,7 @@ def router(mock_registry: Mock, mock_budget_client: Mock) -> Router:
     return Router(registry=mock_registry, budget_client=mock_budget_client)
 
 
-# --- Tests ---
+# --- Standard Tests ---
 
 
 def test_route_tier_3_high_complexity(router: Router) -> None:
@@ -157,3 +157,96 @@ def test_unhealthy_models_skipped(router: Router, mock_registry: Mock) -> None:
     model = router.route(context, user_id="user1")
 
     assert model.id == "healthy_model"
+
+
+# --- Edge Case & Complex Scenario Tests ---
+
+
+def test_complexity_boundaries(router: Router) -> None:
+    """Test exact boundary values for complexity."""
+    # 0.3999 -> Tier 1
+    context = RoutingContext(complexity=0.3999, domain="general")
+    assert router.route(context, "u1").tier == ModelTier.TIER_1_FAST
+
+    # 0.4 -> Tier 2
+    context = RoutingContext(complexity=0.4, domain="general")
+    assert router.route(context, "u1").tier == ModelTier.TIER_2_SMART
+
+    # 0.7999 -> Tier 2
+    context = RoutingContext(complexity=0.7999, domain="general")
+    assert router.route(context, "u1").tier == ModelTier.TIER_2_SMART
+
+    # 0.8 -> Tier 3
+    context = RoutingContext(complexity=0.8, domain="general")
+    assert router.route(context, "u1").tier == ModelTier.TIER_3_REASONING
+
+
+def test_budget_boundaries(router: Router, mock_budget_client: Mock) -> None:
+    """Test exact boundary values for economy mode budget."""
+    # 0.10 (10%) -> No downgrade
+    mock_budget_client.get_remaining_budget_percentage.return_value = 0.10
+    context = RoutingContext(complexity=0.5, domain="general")  # Tier 2 target
+    assert router.route(context, "u1").tier == ModelTier.TIER_2_SMART
+
+    # 0.0999 (9.99%) -> Downgrade
+    mock_budget_client.get_remaining_budget_percentage.return_value = 0.0999
+    context = RoutingContext(complexity=0.5, domain="general")  # Tier 2 target
+    assert router.route(context, "u1").tier == ModelTier.TIER_1_FAST
+
+
+def test_domain_case_insensitivity(router: Router) -> None:
+    """Test that domain check is case insensitive."""
+    # "Safety_Critical" -> Should trigger Tier 3 (High)
+    context = RoutingContext(complexity=0.1, domain="Safety_Critical")
+    model = router.route(context, "u1")
+    assert model.tier == ModelTier.TIER_3_REASONING
+
+    # "SAFETY_CRITICAL" -> Should trigger Tier 3 (High)
+    context = RoutingContext(complexity=0.1, domain="SAFETY_CRITICAL")
+    model = router.route(context, "u1")
+    assert model.tier == ModelTier.TIER_3_REASONING
+
+
+def test_domain_null_or_empty(router: Router) -> None:
+    """Test None or Empty string domains don't crash."""
+    # None
+    context = RoutingContext(complexity=0.2, domain=None)
+    assert router.route(context, "u1").tier == ModelTier.TIER_1_FAST
+
+    # Empty
+    context = RoutingContext(complexity=0.2, domain="")
+    assert router.route(context, "u1").tier == ModelTier.TIER_1_FAST
+
+
+def test_economy_downgrade_dead_end(router: Router, mock_budget_client: Mock, mock_registry: Mock) -> None:
+    """
+    Test scenario:
+    - User wants Tier 2.
+    - Budget is low -> Downgrades to Tier 1.
+    - Tier 1 has NO models.
+    - Result: Should raise RuntimeError (Fail Open/Safe).
+    """
+    mock_budget_client.get_remaining_budget_percentage.return_value = 0.05
+
+    # Mock registry: Tier 2 exists, Tier 1 is empty
+    t2 = ModelDefinition(
+        id="tier2-model", provider="test", tier=ModelTier.TIER_2_SMART, cost_per_1k_input=0.05, cost_per_1k_output=0.05
+    )
+
+    def list_models_dead_end(tier: ModelTier | None = None) -> list[ModelDefinition]:
+        if tier == ModelTier.TIER_2_SMART:
+            return [t2]
+        if tier == ModelTier.TIER_1_FAST:
+            return []  # No cheap models!
+        return []
+
+    mock_registry.list_models.side_effect = list_models_dead_end
+
+    context = RoutingContext(complexity=0.5, domain="general")  # Target Tier 2
+
+    # Expect error because it tries to find Tier 1 and fails
+    # Note: Enum string representation might include class name depending on python version/implementation
+    # We match part of it or handle exact string.
+    # In logs we saw: 'No healthy models available for Tier: ModelTier.TIER_1_FAST'
+    with pytest.raises(RuntimeError, match="No healthy models available for Tier"):
+        router.route(context, "u1")
