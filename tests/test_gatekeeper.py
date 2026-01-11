@@ -63,3 +63,59 @@ def test_classify_false_positive_keywords_2(gatekeeper: Gatekeeper) -> None:
     text = "We should breathalyze the driver."
     context = gatekeeper.classify(text)
     assert context.complexity == 0.1
+
+
+# --- Edge Cases & Complex Scenarios ---
+
+
+def test_classify_punctuation_boundaries(gatekeeper: Gatekeeper) -> None:
+    """Test keywords followed immediately by punctuation."""
+    texts = ["Please analyze.", "Why do you reason?", "Critique: This is a test."]
+    for text in texts:
+        context = gatekeeper.classify(text)
+        assert context.complexity == 0.9, f"Failed to detect keyword in: '{text}'"
+
+
+def test_classify_code_variable_names(gatekeeper: Gatekeeper) -> None:
+    """
+    Test that keywords embedded in snake_case or camelCase variables
+    do NOT trigger high complexity (false positives).
+    The regex \b should treat '_' as a word character, preventing a match.
+    """
+    texts = ["def analyze_data(self): pass", "var_reason = 10", "class CritiqueController:", "analyzeData = True"]
+    for text in texts:
+        context = gatekeeper.classify(text)
+        assert context.complexity == 0.1, f"Incorrectly flagged code variable in: '{text}'"
+
+
+def test_classify_hyphenated_words(gatekeeper: Gatekeeper) -> None:
+    """
+    Test hyphenated words.
+    Hyphens are usually non-word characters, so 'self-analyze'
+    should contain the word 'analyze'.
+    """
+    text = "Please self-analyze your behavior."
+    context = gatekeeper.classify(text)
+    assert context.complexity == 0.9
+
+
+def test_classify_multiline_text(gatekeeper: Gatekeeper) -> None:
+    """Test keywords hidden inside multiline text."""
+    text = """
+    Here is a long prompt.
+    I want you to
+    analyze
+    this data carefully.
+    """
+    context = gatekeeper.classify(text)
+    assert context.complexity == 0.9
+
+
+def test_classify_strict_keyword_matching(gatekeeper: Gatekeeper) -> None:
+    """
+    Verify strict adherence to keywords.
+    'Analyzed' (past tense) is NOT in the list ['analyze', 'critique', 'reason'].
+    """
+    text = "I have analyzed the data already."
+    context = gatekeeper.classify(text)
+    assert context.complexity == 0.1
