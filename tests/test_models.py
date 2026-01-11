@@ -42,6 +42,26 @@ def test_model_definition_invalid() -> None:
         )
 
 
+def test_model_definition_empty_strings() -> None:
+    with pytest.raises(ValidationError):
+        ModelDefinition(
+            id="",  # Empty ID
+            provider="azure",
+            tier=ModelTier.TIER_1_FAST,
+            cost_per_1k_input=0.01,
+            cost_per_1k_output=0.01,
+        )
+
+    with pytest.raises(ValidationError):
+        ModelDefinition(
+            id="valid-id",
+            provider="",  # Empty provider
+            tier=ModelTier.TIER_1_FAST,
+            cost_per_1k_input=0.01,
+            cost_per_1k_output=0.01,
+        )
+
+
 def test_routing_context_valid() -> None:
     context = RoutingContext(complexity=0.5, domain="medical")
     assert context.complexity == 0.5

@@ -11,8 +11,8 @@ class ModelTier(str, Enum):
 
 
 class ModelDefinition(BaseModel):
-    id: str  # e.g. "azure/gpt-4o"
-    provider: str  # e.g. "azure"
+    id: str = Field(..., min_length=1)  # e.g. "azure/gpt-4o"
+    provider: str = Field(..., min_length=1)  # e.g. "azure"
     tier: ModelTier
     cost_per_1k_input: float
     cost_per_1k_output: float
