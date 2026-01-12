@@ -49,6 +49,7 @@ def test_classify_empty_string(gatekeeper: Gatekeeper) -> None:
     """Test empty string input."""
     context = gatekeeper.classify("")
     assert context.complexity == 0.1
+    assert context.domain is None
 
 
 def test_classify_false_positive_keywords(gatekeeper: Gatekeeper) -> None:
@@ -63,6 +64,54 @@ def test_classify_false_positive_keywords_2(gatekeeper: Gatekeeper) -> None:
     text = "We should breathalyze the driver."
     context = gatekeeper.classify(text)
     assert context.complexity == 0.1
+
+
+# --- Domain Extraction Tests ---
+
+
+def test_classify_medical_domain_keyword(gatekeeper: Gatekeeper) -> None:
+    """Test 'clinical' triggers medical domain."""
+    text = "Is this clinical trial approved?"
+    context = gatekeeper.classify(text)
+    assert context.domain == "medical"
+    # 'clinical' is not a complexity keyword, so complexity remains 0.1 unless other factors present
+    assert context.complexity == 0.1
+
+
+def test_classify_medical_domain_multiword_keyword(gatekeeper: Gatekeeper) -> None:
+    """Test 'adverse event' triggers medical domain."""
+    text = "Report any adverse event immediately."
+    context = gatekeeper.classify(text)
+    assert context.domain == "medical"
+
+
+def test_classify_safety_critical_domain(gatekeeper: Gatekeeper) -> None:
+    """Test 'danger' triggers safety_critical domain."""
+    text = "There is immediate danger in the lab."
+    context = gatekeeper.classify(text)
+    assert context.domain == "safety_critical"
+
+
+def test_classify_domain_case_insensitive(gatekeeper: Gatekeeper) -> None:
+    """Test domain keywords are case insensitive."""
+    text = "Check the DOSE levels."
+    context = gatekeeper.classify(text)
+    assert context.domain == "medical"
+
+
+def test_classify_domain_and_complexity(gatekeeper: Gatekeeper) -> None:
+    """Test prompt with both complexity and domain keywords."""
+    text = "Analyze the adverse event reports."
+    context = gatekeeper.classify(text)
+    assert context.complexity == 0.9
+    assert context.domain == "medical"
+
+
+def test_classify_false_positive_domain(gatekeeper: Gatekeeper) -> None:
+    """Test that partial matches (e.g. 'endose') don't trigger 'dose' -> medical."""
+    text = "Please endorse this check."
+    context = gatekeeper.classify(text)
+    assert context.domain is None
 
 
 # --- Edge Cases & Complex Scenarios ---
