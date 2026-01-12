@@ -54,13 +54,24 @@ class ArbitrageEngine:
         foundry_client: ModelFoundryClient,
     ) -> None:
         """
-        Injects external dependencies into the engine.
+        Injects external dependencies into the engine and performs initial synchronization.
         """
         with self._lock:
             self.budget_client = budget_client
             self.audit_client = audit_client
             self.foundry_client = foundry_client
             logger.info("ArbitrageEngine configured with external clients")
+
+            # Initial sync with Model Foundry
+            try:
+                logger.info("Pulling custom models from ModelFoundry...")
+                custom_models = self.foundry_client.list_custom_models()
+                for model in custom_models:
+                    self.registry.register_model(model)
+                logger.info(f"Successfully registered {len(custom_models)} custom models from Foundry")
+            except Exception as e:
+                # Fail Open: Do not crash if Foundry is down, just log error
+                logger.error(f"Failed to pull models from ModelFoundry: {e}")
 
     def get_client(self, capability: str = "reasoning") -> "SmartClient":  # type: ignore[name-defined] # noqa: F821
         """
