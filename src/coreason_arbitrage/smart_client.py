@@ -89,18 +89,19 @@ class CompletionsWrapper:
                 # Record Success
                 self.engine.load_balancer.record_success(model_def.provider)
 
-                # 5. Audit Logging
+                # 5. Cost Calculation & Accounting
+                usage = response.usage
+                input_tokens = usage.prompt_tokens
+                output_tokens = usage.completion_tokens
+
+                # Calculate cost (simplified)
+                cost = (input_tokens / 1000 * model_def.cost_per_1k_input) + (
+                    output_tokens / 1000 * model_def.cost_per_1k_output
+                )
+
+                # Audit Logging
                 if self.engine.audit_client:
                     try:
-                        usage = response.usage
-                        input_tokens = usage.prompt_tokens
-                        output_tokens = usage.completion_tokens
-
-                        # Calculate cost (simplified)
-                        cost = (input_tokens / 1000 * model_def.cost_per_1k_input) + (
-                            output_tokens / 1000 * model_def.cost_per_1k_output
-                        )
-
                         self.engine.audit_client.log_transaction(
                             user_id=user_id,
                             model_id=model_def.id,
@@ -110,6 +111,14 @@ class CompletionsWrapper:
                         )
                     except Exception as e:
                         logger.error(f"Audit logging failed: {e}")
+
+                # Budget Deduction
+                if self.engine.budget_client:
+                    try:
+                        self.engine.budget_client.deduct_funds(user_id, cost)
+                    except Exception as e:
+                        # Log error but do not fail the request since response is already generated
+                        logger.error(f"Failed to deduct funds for user {user_id}: {e}")
 
                 return response
 
@@ -154,15 +163,17 @@ class CompletionsWrapper:
             response = completion(model=fallback_model.id, messages=messages, **kwargs)
 
             # Record success (maybe not for load balancer since provider is fake/failover)
-            # But we should log audit
+            # But we should log audit and deduct funds
+
+            usage = response.usage
+            input_tokens = usage.prompt_tokens
+            output_tokens = usage.completion_tokens
+            cost = (input_tokens / 1000 * fallback_model.cost_per_1k_input) + (
+                output_tokens / 1000 * fallback_model.cost_per_1k_output
+            )
+
             if self.engine.audit_client:
                 try:
-                    usage = response.usage
-                    input_tokens = usage.prompt_tokens
-                    output_tokens = usage.completion_tokens
-                    cost = (input_tokens / 1000 * fallback_model.cost_per_1k_input) + (
-                        output_tokens / 1000 * fallback_model.cost_per_1k_output
-                    )
                     self.engine.audit_client.log_transaction(
                         user_id=user_id,
                         model_id=fallback_model.id,
@@ -172,6 +183,12 @@ class CompletionsWrapper:
                     )
                 except Exception as e:
                     logger.error(f"Audit logging failed during fail-open: {e}")
+
+            if self.engine.budget_client:
+                try:
+                    self.engine.budget_client.deduct_funds(user_id, cost)
+                except Exception as e:
+                    logger.error(f"Failed to deduct funds during fail-open for user {user_id}: {e}")
 
             return response
 
