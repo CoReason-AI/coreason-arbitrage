@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from coreason_arbitrage.engine import ArbitrageEngine
 from coreason_arbitrage.interfaces import BudgetClient
 from coreason_arbitrage.models import ModelDefinition, ModelTier
@@ -156,7 +154,11 @@ def test_smart_client_audit_logging_failure() -> None:
             mock_logger.error.assert_called_with("Audit logging failed: Audit Log Error")
 
 
-def test_smart_client_routing_failure_logging() -> None:
+def test_smart_client_routing_failure_fails_open() -> None:
+    """
+    Test that when routing consistently fails (no healthy models),
+    SmartClient fails open to the default fallback model.
+    """
     engine = ArbitrageEngine()
     reset_engine(engine)
 
@@ -167,21 +169,29 @@ def test_smart_client_routing_failure_logging() -> None:
     client = engine.get_client()
 
     with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
-        with pytest.raises(RuntimeError, match="No healthy models"):
+        # Should NOT raise RuntimeError anymore, but return a response (mocked)
+        with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+            mock_completion.return_value = MagicMock()
+
             client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
 
-        # Verify logger.error was called with the routing exception
-        found = False
-        for call in mock_logger.error.call_args_list:
-            args, _ = call
-            if "Routing failed" in args[0]:  # Match partial string
-                found = True
-                break
+            # Verify fail open warning
+            found_critical = False
+            for call in mock_logger.critical.call_args_list:
+                args, _ = call
+                if "Fail-Open triggered" in str(args):
+                    found_critical = True
+                    break
+            assert found_critical, "Expected 'Fail-Open triggered' log message"
 
-        assert found, "Expected 'Routing failed' log message not found"
+            # Verify fallback model usage
+            mock_completion.assert_called_with(model="azure/gpt-4o", messages=[{"role": "user", "content": "hi"}])
 
 
-def test_smart_client_zero_retries() -> None:
+def test_smart_client_zero_retries_fail_open() -> None:
+    """
+    Test that if retries are zero, we immediately fail open.
+    """
     engine = ArbitrageEngine()
     reset_engine(engine)
     engine.configure(MagicMock(spec=BudgetClient), MagicMock(), MagicMock())
@@ -190,5 +200,9 @@ def test_smart_client_zero_retries() -> None:
     client = engine.get_client()
 
     with patch("coreason_arbitrage.smart_client.MAX_RETRIES", 0):
-        with pytest.raises(RuntimeError, match="Request failed after max retries"):
+        with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+            mock_completion.return_value = MagicMock()
+
             client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
+
+            mock_completion.assert_called_with(model="azure/gpt-4o", messages=[{"role": "user", "content": "hi"}])

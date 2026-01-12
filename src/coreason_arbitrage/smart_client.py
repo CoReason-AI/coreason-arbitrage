@@ -8,13 +8,14 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
+import os
 from typing import Any, Dict, List, Optional
 
 from litellm import completion
 
 from coreason_arbitrage.engine import ArbitrageEngine
 from coreason_arbitrage.gatekeeper import Gatekeeper
-from coreason_arbitrage.models import ModelDefinition
+from coreason_arbitrage.models import ModelDefinition, ModelTier
 from coreason_arbitrage.router import Router
 from coreason_arbitrage.utils.logger import logger
 
@@ -132,12 +133,53 @@ class CompletionsWrapper:
                 # Continue to next attempt
                 continue
 
-        # If exhausted retries
-        logger.error("Max retries exhausted.")
-        if last_exception:
-            raise last_exception
-        else:
-            raise RuntimeError("Request failed after max retries.")
+        # If exhausted retries, Fail Open
+        logger.critical(f"Max retries exhausted. Fail-Open triggered. Last error: {last_exception}")
+
+        fallback_model_id = os.environ.get("ARBITRAGE_FALLBACK_MODEL", "azure/gpt-4o")
+        logger.warning(f"Attempting Fail-Open with model: {fallback_model_id}")
+
+        # Construct safe default model definition for audit/tracking
+        # We assume standard GPT-4o pricing or $0 if unknown
+        fallback_model = ModelDefinition(
+            id=fallback_model_id,
+            provider="failover",
+            tier=ModelTier.TIER_3_REASONING,
+            cost_per_1k_input=0.005,  # Estimated
+            cost_per_1k_output=0.015,
+            is_healthy=True,
+        )
+
+        try:
+            response = completion(model=fallback_model.id, messages=messages, **kwargs)
+
+            # Record success (maybe not for load balancer since provider is fake/failover)
+            # But we should log audit
+            if self.engine.audit_client:
+                try:
+                    usage = response.usage
+                    input_tokens = usage.prompt_tokens
+                    output_tokens = usage.completion_tokens
+                    cost = (input_tokens / 1000 * fallback_model.cost_per_1k_input) + (
+                        output_tokens / 1000 * fallback_model.cost_per_1k_output
+                    )
+                    self.engine.audit_client.log_transaction(
+                        user_id=user_id,
+                        model_id=fallback_model.id,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cost=cost,
+                    )
+                except Exception as e:
+                    logger.error(f"Audit logging failed during fail-open: {e}")
+
+            return response
+
+        except Exception as e:
+            logger.critical(f"Fail-Open failed: {e}")
+            if last_exception:
+                raise last_exception from e
+            raise e from None
 
 
 class ChatWrapper:
