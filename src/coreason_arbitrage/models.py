@@ -17,6 +17,7 @@ class ModelDefinition(BaseModel):
     cost_per_1k_input: float
     cost_per_1k_output: float
     is_healthy: bool = True
+    domain: Optional[str] = None
 
 
 class RoutingContext(BaseModel):

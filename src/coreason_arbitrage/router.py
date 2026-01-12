@@ -40,11 +40,28 @@ class Router:
            - Return the first healthy model.
            - If no model found in target Tier, try fallback (logic TBD, for now raise Error).
         """
-        # 1. Determine Baseline Tier
-        target_tier: ModelTier
-
+        # 0. Domain Priority Check
         # Normalize domain for case-insensitive check
         domain_lower = context.domain.lower() if context.domain else ""
+
+        if context.domain:
+            domain_candidates = self.registry.list_models(domain=context.domain)
+            # Filter by health
+            healthy_domain_candidates = [m for m in domain_candidates if m.is_healthy]
+            if self.load_balancer:
+                healthy_domain_candidates = [
+                    m for m in healthy_domain_candidates if self.load_balancer.is_provider_healthy(m.provider)
+                ]
+
+            if healthy_domain_candidates:
+                selected_model = healthy_domain_candidates[0]
+                logger.info(
+                    f"Domain match found. Routed to specialized model: {selected_model.id} ({selected_model.provider})"
+                )
+                return selected_model
+
+        # 1. Determine Baseline Tier
+        target_tier: ModelTier
 
         if context.complexity >= 0.8 or domain_lower == "safety_critical":
             target_tier = ModelTier.TIER_3_REASONING

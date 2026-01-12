@@ -44,16 +44,23 @@ class ModelRegistry:
         """
         return self._models.get(model_id)
 
-    def list_models(self, tier: Optional[ModelTier] = None) -> List[ModelDefinition]:
+    def list_models(self, tier: Optional[ModelTier] = None, domain: Optional[str] = None) -> List[ModelDefinition]:
         """
-        Lists all models, optionally filtered by tier.
+        Lists all models, optionally filtered by tier and/or domain.
+        Domain matching is case-insensitive.
         """
         with self._lock:
             all_models = list(self._models.values())
 
+        filtered = all_models
         if tier:
-            return [m for m in all_models if m.tier == tier]
-        return all_models
+            filtered = [m for m in filtered if m.tier == tier]
+
+        if domain:
+            domain_lower = domain.lower()
+            filtered = [m for m in filtered if m.domain and m.domain.lower() == domain_lower]
+
+        return filtered
 
     def clear(self) -> None:
         """
