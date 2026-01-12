@@ -11,6 +11,9 @@
 import threading
 from typing import Optional
 
+from coreason_arbitrage.interfaces import AuditClient, BudgetClient, ModelFoundryClient
+from coreason_arbitrage.load_balancer import LoadBalancer
+from coreason_arbitrage.registry import ModelRegistry
 from coreason_arbitrage.utils.logger import logger
 
 
@@ -30,12 +33,40 @@ class ArbitrageEngine:
     def __init__(self) -> None:
         if self._initialized:
             return
-        logger.info("Initializing ArbitrageEngine")
-        self._initialized = True
+        with self._lock:
+            if self._initialized:  # Double check
+                return  # pragma: no cover
+            logger.info("Initializing ArbitrageEngine")
+            self.load_balancer = LoadBalancer()
+            self.registry = ModelRegistry()
 
-    def get_client(self, capability: str = "reasoning") -> None:
+            # Dependencies to be injected via configure
+            self.budget_client: Optional[BudgetClient] = None
+            self.audit_client: Optional[AuditClient] = None
+            self.foundry_client: Optional[ModelFoundryClient] = None
+
+            self._initialized = True
+
+    def configure(
+        self,
+        budget_client: BudgetClient,
+        audit_client: AuditClient,
+        foundry_client: ModelFoundryClient,
+    ) -> None:
         """
-        Placeholder for get_client method.
+        Injects external dependencies into the engine.
         """
+        with self._lock:
+            self.budget_client = budget_client
+            self.audit_client = audit_client
+            self.foundry_client = foundry_client
+            logger.info("ArbitrageEngine configured with external clients")
+
+    def get_client(self, capability: str = "reasoning") -> "SmartClient":  # type: ignore[name-defined] # noqa: F821
+        """
+        Returns a SmartClient instance configured for the engine.
+        """
+        from coreason_arbitrage.smart_client import SmartClient
+
         logger.info(f"Getting client for capability: {capability}")
-        pass
+        return SmartClient(self)
