@@ -34,34 +34,21 @@ class Router:
            - Tier 1: Complexity < 0.4
         2. Apply Economy Mode:
            - If user budget < 10% (0.1) AND Tier is Tier 2, downgrade to Tier 1.
-        3. Select Model:
+        3. Domain Priority Check:
+           - If domain matches, look for a healthy domain model.
+           - Prefer one that matches the Target Tier.
+           - Fallback to any healthy domain model if Target Tier not available.
+        4. Select Generic Model:
            - Query Registry for the target Tier.
            - Filter by provider health (LoadBalancer).
            - Return the first healthy model.
-           - If no model found in target Tier, try fallback (logic TBD, for now raise Error).
+           - If no model found in target Tier, raise Error.
         """
-        # 0. Domain Priority Check
-        # Normalize domain for case-insensitive check
-        domain_lower = context.domain.lower() if context.domain else ""
-
-        if context.domain:
-            domain_candidates = self.registry.list_models(domain=context.domain)
-            # Filter by health
-            healthy_domain_candidates = [m for m in domain_candidates if m.is_healthy]
-            if self.load_balancer:
-                healthy_domain_candidates = [
-                    m for m in healthy_domain_candidates if self.load_balancer.is_provider_healthy(m.provider)
-                ]
-
-            if healthy_domain_candidates:
-                selected_model = healthy_domain_candidates[0]
-                logger.info(
-                    f"Domain match found. Routed to specialized model: {selected_model.id} ({selected_model.provider})"
-                )
-                return selected_model
-
         # 1. Determine Baseline Tier
         target_tier: ModelTier
+
+        # Normalize domain for case-insensitive check
+        domain_lower = context.domain.lower() if context.domain else ""
 
         if context.complexity >= 0.8 or domain_lower == "safety_critical":
             target_tier = ModelTier.TIER_3_REASONING
@@ -86,7 +73,32 @@ class Router:
             # Fail Open: If budget check fails, proceed with baseline choice but log error
             logger.error(f"Failed to check budget for user {user_id}: {e}")
 
-        # 3. Select Model from Registry
+        # 3. Domain Priority Check
+        if context.domain:
+            domain_candidates = self.registry.list_models(domain=context.domain)
+            # Filter by health
+            healthy_domain_candidates = [m for m in domain_candidates if m.is_healthy]
+            if self.load_balancer:
+                healthy_domain_candidates = [
+                    m for m in healthy_domain_candidates if self.load_balancer.is_provider_healthy(m.provider)
+                ]
+
+            if healthy_domain_candidates:
+                # Attempt to find a match for the target tier
+                tier_matches = [m for m in healthy_domain_candidates if m.tier == target_tier]
+
+                selected_model: ModelDefinition
+                if tier_matches:
+                    selected_model = tier_matches[0]
+                    logger.info(f"Domain match found (Tier Match). Routed to specialized model: {selected_model.id}")
+                else:
+                    # Fallback to any healthy domain model (Soft Fallback)
+                    selected_model = healthy_domain_candidates[0]
+                    logger.info(f"Domain match found (Tier Fallback). Routed to specialized model: {selected_model.id}")
+
+                return selected_model
+
+        # 4. Select Generic Model from Registry
         candidates = self.registry.list_models(tier=target_tier)
 
         # Filter by static health check
