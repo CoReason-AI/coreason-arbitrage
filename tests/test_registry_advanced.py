@@ -173,3 +173,38 @@ def test_complex_concurrency_mixed_load(registry: ModelRegistry) -> None:
     # Final consistency check
     final_count = len(registry.list_models())
     assert final_count >= 10
+
+
+def test_list_models_domain_filter_advanced(registry: ModelRegistry) -> None:
+    """
+    Test edge cases for domain filtering in ModelRegistry.
+    Specifically targeting the list comprehension filter logic.
+    """
+    # 1. Model with domain
+    m_domain = ModelDefinition(
+        id="m1", provider="p", tier=ModelTier.TIER_1_FAST, cost_per_1k_input=0, cost_per_1k_output=0, domain="Finance"
+    )
+    # 2. Model without domain (None)
+    m_no_domain = ModelDefinition(
+        id="m2", provider="p", tier=ModelTier.TIER_1_FAST, cost_per_1k_input=0, cost_per_1k_output=0, domain=None
+    )
+    # 3. Model with different domain
+    m_other = ModelDefinition(
+        id="m3", provider="p", tier=ModelTier.TIER_1_FAST, cost_per_1k_input=0, cost_per_1k_output=0, domain="Medical"
+    )
+
+    registry.register_model(m_domain)
+    registry.register_model(m_no_domain)
+    registry.register_model(m_other)
+
+    # Search for "finance" (case insensitive)
+    # Should find m_domain
+    # Should skip m_no_domain (m.domain is None)
+    # Should skip m_other (domain mismatch)
+    results = registry.list_models(domain="finance")
+
+    assert len(results) == 1
+    assert results[0].id == "m1"
+
+    # Verify strictness: searching for something else returns empty
+    assert len(registry.list_models(domain="Legal")) == 0

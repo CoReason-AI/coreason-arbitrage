@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from coreason_arbitrage.interfaces import BudgetClient
+from coreason_arbitrage.load_balancer import LoadBalancer
 from coreason_arbitrage.models import ModelDefinition, ModelTier, RoutingContext
 from coreason_arbitrage.registry import ModelRegistry
 from coreason_arbitrage.router import Router
@@ -22,7 +23,7 @@ def mock_registry_complex() -> Mock:
 
     medical_t1 = ModelDefinition(
         id="medical-t1",
-        provider="test",
+        provider="provider-a",
         tier=ModelTier.TIER_1_FAST,
         cost_per_1k_input=0.01,
         cost_per_1k_output=0.01,
@@ -30,7 +31,7 @@ def mock_registry_complex() -> Mock:
     )
     medical_t3 = ModelDefinition(
         id="medical-t3",
-        provider="test",
+        provider="provider-a",
         tier=ModelTier.TIER_3_REASONING,
         cost_per_1k_input=0.10,
         cost_per_1k_output=0.10,
@@ -38,7 +39,7 @@ def mock_registry_complex() -> Mock:
     )
     medical_unhealthy = ModelDefinition(
         id="medical-unhealthy",
-        provider="test",
+        provider="provider-b",
         tier=ModelTier.TIER_2_SMART,
         cost_per_1k_input=0.05,
         cost_per_1k_output=0.05,
@@ -48,7 +49,11 @@ def mock_registry_complex() -> Mock:
 
     # Generic models
     generic_t1 = ModelDefinition(
-        id="generic-t1", provider="test", tier=ModelTier.TIER_1_FAST, cost_per_1k_input=0.01, cost_per_1k_output=0.01
+        id="generic-t1",
+        provider="provider-c",
+        tier=ModelTier.TIER_1_FAST,
+        cost_per_1k_input=0.01,
+        cost_per_1k_output=0.01,
     )
 
     all_models = [medical_t1, medical_t3, medical_unhealthy, generic_t1]
@@ -73,6 +78,14 @@ def mock_budget_client() -> Mock:
 
 
 @pytest.fixture
+def mock_load_balancer() -> Mock:
+    lb = Mock(spec=LoadBalancer)
+    # Default all healthy
+    lb.is_provider_healthy.return_value = True
+    return lb
+
+
+@pytest.fixture
 def router(mock_registry_complex: Mock, mock_budget_client: Mock) -> Router:
     return Router(registry=mock_registry_complex, budget_client=mock_budget_client)
 
@@ -84,15 +97,11 @@ def test_domain_model_selection_matches_complexity(router: Router) -> None:
     """
     Test that when multiple domain models exist, the one matching the complexity (Tier) is chosen.
     """
-    # Case A: Low Complexity (0.1) -> Expects Tier 1
-    # Should pick 'medical-t1'
     context_low = RoutingContext(complexity=0.1, domain="medical")
     model_low = router.route(context_low, user_id="user1")
     assert model_low.id == "medical-t1"
     assert model_low.tier == ModelTier.TIER_1_FAST
 
-    # Case B: High Complexity (0.9) -> Expects Tier 3
-    # Should pick 'medical-t3'
     context_high = RoutingContext(complexity=0.9, domain="medical")
     model_high = router.route(context_high, user_id="user1")
     assert model_high.id == "medical-t3"
@@ -104,16 +113,10 @@ def test_domain_model_fallback_if_tier_mismatch(router: Router) -> None:
     Test that if the requested Tier is not available in domain models,
     it falls back to ANY healthy domain model (preferring domain over generic).
     """
-    # Complexity 0.5 -> Expects Tier 2
-    # 'medical-unhealthy' is Tier 2 but unhealthy.
-    # Healthy domain models: T1 and T3.
-    # Should pick one of them (likely first in list or arbitrary, currently T1).
     context = RoutingContext(complexity=0.5, domain="medical")
     model = router.route(context, user_id="user1")
 
     assert model.domain == "medical"
-    # Logic picks first healthy candidate if no tier match.
-    # Our mock returns [t1, t3]. So it should match t1.
     assert model.id == "medical-t1"
 
 
@@ -123,9 +126,6 @@ def test_domain_model_respects_economy_mode(router: Router, mock_budget_client: 
     """
     mock_budget_client.get_remaining_budget_percentage.return_value = 0.05  # Broke
 
-    # Complexity 0.5 (Tier 2). Economy Mode -> Downgrade to Tier 1.
-    # We have Medical T1 and T3.
-    # Should pick Medical T1.
     context = RoutingContext(complexity=0.5, domain="medical")
     model = router.route(context, user_id="user1")
 
@@ -137,12 +137,58 @@ def test_multiple_domain_models_skips_unhealthy(router: Router) -> None:
     """
     Test that unhealthy domain models are skipped, even if they match the tier perfectly.
     """
-    # Complexity 0.5 -> Tier 2.
-    # We have 'medical-unhealthy' which is Tier 2.
-    # It should be skipped.
-    # Fallback to T1 or T3 (whichever is first healthy).
     context = RoutingContext(complexity=0.5, domain="medical")
     model = router.route(context, user_id="user1")
 
     assert model.id != "medical-unhealthy"
     assert model.domain == "medical"
+
+
+def test_domain_model_filtered_by_load_balancer(
+    mock_registry_complex: Mock, mock_budget_client: Mock, mock_load_balancer: Mock
+) -> None:
+    """
+    Test that domain models are filtered by the Load Balancer if it is present.
+    """
+    # Create router WITH load balancer
+    router_with_lb = Router(
+        registry=mock_registry_complex, budget_client=mock_budget_client, load_balancer=mock_load_balancer
+    )
+
+    # Setup: 'medical-t1' provider is UNHEALTHY via LoadBalancer
+    # 'medical-t3' provider is HEALTHY
+
+    # medical-t1 uses 'provider-a'
+    # medical-t3 uses 'provider-a'
+    # Wait, let's make them use different providers or mock side effect
+
+    def is_provider_healthy(provider: str) -> bool:
+        if provider == "provider-a":
+            return False
+        return True
+
+    mock_load_balancer.is_provider_healthy.side_effect = is_provider_healthy
+
+    # If we request complexity 0.1, normally we get medical-t1 (Tier 1).
+    # But provider-a is unhealthy.
+    # So we should skip it.
+
+    # Wait, both my mock models use 'provider-a' in the fixture above.
+    # I should update fixture or creating new models here?
+    # I'll rely on the fixture but update the test logic expectation.
+    # If both t1 and t3 use provider-a and it's down, we have NO domain models.
+    # Then it should fallback to generic.
+
+    # Let's change the fixture slightly to have distinct providers?
+    # Or just Mock the registry again locally.
+
+    # Let's verify fallback to generic if all domain providers are down.
+    context = RoutingContext(complexity=0.1, domain="medical")
+
+    # Expectation: Falls back to generic-t1 (if healthy)
+    # generic-t1 uses provider-c, which is healthy
+
+    model = router_with_lb.route(context, user_id="user1")
+
+    assert model.id == "generic-t1"
+    assert model.domain is None
