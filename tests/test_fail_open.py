@@ -164,3 +164,21 @@ def test_fail_open_invalid_env_var() -> None:
             # Expect Pydantic ValidationError because ModelDefinition requires min_length=1
             with pytest.raises(ValidationError):
                 client.chat.completions.create(messages=[{"role": "user", "content": "Hello"}])
+
+
+def test_fail_open_immediate_failure_with_zero_retries() -> None:
+    """
+    Test fail-open execution when MAX_RETRIES is 0 and fallback ALSO fails.
+    This triggers the `raise e from None` path because last_exception is None.
+    """
+    engine = ArbitrageEngine()
+    reset_engine(engine)
+    mock_budget = MagicMock(spec=BudgetClient)
+    mock_budget.check_allowance.return_value = True
+    engine.configure(mock_budget, MagicMock(), MagicMock())
+    client = engine.get_client()
+
+    with patch("coreason_arbitrage.smart_client.MAX_RETRIES", 0):
+        with patch("coreason_arbitrage.smart_client.completion", side_effect=Exception("Fallback Error")):
+            with pytest.raises(Exception, match="Fallback Error"):
+                client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
