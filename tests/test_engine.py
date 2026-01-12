@@ -119,6 +119,119 @@ def test_arbitrage_engine_configure_foundry_failure() -> None:
     assert len(engine.registry._models) == 0
 
 
+def test_arbitrage_engine_configure_updates_existing_models() -> None:
+    """
+    Test that if a model ID exists in the registry, the version from Foundry
+    overwrites it (verifying update behavior).
+    """
+    engine = ArbitrageEngine()
+    reset_engine(engine)
+
+    mock_budget = MagicMock(spec=BudgetClient)
+    mock_audit = MagicMock(spec=AuditClient)
+    mock_foundry = MagicMock(spec=ModelFoundryClient)
+
+    # 1. Pre-populate registry with an "old" version
+    old_model = ModelDefinition(
+        id="custom/model-1",
+        provider="custom",
+        tier=ModelTier.TIER_1_FAST,
+        cost_per_1k_input=0.01,
+        cost_per_1k_output=0.01,
+    )
+    engine.registry.register_model(old_model)
+
+    # 2. Mock Foundry to return a "new" version
+    new_model = ModelDefinition(
+        id="custom/model-1",
+        provider="custom",
+        tier=ModelTier.TIER_2_SMART,  # Changed Tier
+        cost_per_1k_input=0.05,       # Changed Cost
+        cost_per_1k_output=0.05,
+    )
+    mock_foundry.list_custom_models.return_value = [new_model]
+
+    # 3. Configure
+    engine.configure(mock_budget, mock_audit, mock_foundry)
+
+    # 4. Verify the model in registry is the new one
+    current_model = engine.registry.get_model("custom/model-1")
+    assert current_model is not None
+    assert current_model.tier == ModelTier.TIER_2_SMART
+    assert current_model.cost_per_1k_input == 0.05
+
+
+def test_arbitrage_engine_stale_model_persistence() -> None:
+    """
+    Test that models present in the registry but NOT returned by ModelFoundry
+    during a re-configuration are preserved (not deleted).
+    """
+    engine = ArbitrageEngine()
+    reset_engine(engine)
+
+    mock_budget = MagicMock(spec=BudgetClient)
+    mock_audit = MagicMock(spec=AuditClient)
+    mock_foundry = MagicMock(spec=ModelFoundryClient)
+
+    # 1. Pre-populate registry with a model that won't be in Foundry
+    manual_model = ModelDefinition(
+        id="manual/local-model",
+        provider="local",
+        tier=ModelTier.TIER_1_FAST,
+        cost_per_1k_input=0.0,
+        cost_per_1k_output=0.0,
+    )
+    engine.registry.register_model(manual_model)
+
+    # 2. Mock Foundry to return a different model
+    foundry_model = ModelDefinition(
+        id="custom/foundry-model",
+        provider="custom",
+        tier=ModelTier.TIER_2_SMART,
+        cost_per_1k_input=0.02,
+        cost_per_1k_output=0.02,
+    )
+    mock_foundry.list_custom_models.return_value = [foundry_model]
+
+    # 3. Configure
+    engine.configure(mock_budget, mock_audit, mock_foundry)
+
+    # 4. Verify BOTH models exist
+    assert engine.registry.get_model("manual/local-model") == manual_model
+    assert engine.registry.get_model("custom/foundry-model") == foundry_model
+    assert len(engine.registry._models) == 2
+
+
+def test_arbitrage_engine_reconfiguration_idempotency() -> None:
+    """
+    Test that calling configure multiple times is safe and results in a consistent state.
+    """
+    engine = ArbitrageEngine()
+    reset_engine(engine)
+
+    mock_budget = MagicMock(spec=BudgetClient)
+    mock_audit = MagicMock(spec=AuditClient)
+    mock_foundry = MagicMock(spec=ModelFoundryClient)
+
+    model = ModelDefinition(
+        id="custom/model-A",
+        provider="custom",
+        tier=ModelTier.TIER_2_SMART,
+        cost_per_1k_input=0.01,
+        cost_per_1k_output=0.01,
+    )
+    mock_foundry.list_custom_models.return_value = [model]
+
+    # First configuration
+    engine.configure(mock_budget, mock_audit, mock_foundry)
+    assert len(engine.registry._models) == 1
+
+    # Second configuration (same model)
+    engine.configure(mock_budget, mock_audit, mock_foundry)
+    assert len(engine.registry._models) == 1
+    assert engine.registry.get_model("custom/model-A") == model
+
+
 def test_arbitrage_engine_thread_safety() -> None:
     """Test that the Singleton pattern holds up under concurrent access."""
     instances: List[ArbitrageEngine] = []
