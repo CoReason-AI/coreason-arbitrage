@@ -29,10 +29,16 @@ def mock_registry() -> Mock:
         cost_per_1k_output=0.10,
     )
 
-    def list_models_side_effect(tier: ModelTier | None = None) -> list[ModelDefinition]:
+    def list_models_side_effect(tier: ModelTier | None = None, domain: str | None = None) -> list[ModelDefinition]:
         all_models = [t1, t2, t3]
         if tier:
             return [m for m in all_models if m.tier == tier]
+        # For these existing tests, we don't really simulate domain matching
+        # unless specifically testing it, so we can ignore 'domain' arg or return [] if it's set
+        # to ensure fallback logic is triggered (since these tests expect fallback/tier logic).
+        if domain:
+            # If domain is requested, and we have no specific domain models in this fixture, return empty
+            return []
         return all_models
 
     registry.list_models.side_effect = list_models_side_effect
@@ -233,7 +239,9 @@ def test_economy_downgrade_dead_end(router: Router, mock_budget_client: Mock, mo
         id="tier2-model", provider="test", tier=ModelTier.TIER_2_SMART, cost_per_1k_input=0.05, cost_per_1k_output=0.05
     )
 
-    def list_models_dead_end(tier: ModelTier | None = None) -> list[ModelDefinition]:
+    def list_models_dead_end(tier: ModelTier | None = None, domain: str | None = None) -> list[ModelDefinition]:
+        if domain:
+            return []
         if tier == ModelTier.TIER_2_SMART:
             return [t2]
         if tier == ModelTier.TIER_1_FAST:
