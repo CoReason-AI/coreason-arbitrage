@@ -146,7 +146,7 @@ def test_arbitrage_engine_configure_updates_existing_models() -> None:
         id="custom/model-1",
         provider="custom",
         tier=ModelTier.TIER_2_SMART,  # Changed Tier
-        cost_per_1k_input=0.05,       # Changed Cost
+        cost_per_1k_input=0.05,  # Changed Cost
         cost_per_1k_output=0.05,
     )
     mock_foundry.list_custom_models.return_value = [new_model]
