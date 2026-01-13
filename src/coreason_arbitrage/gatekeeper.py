@@ -10,8 +10,8 @@ COMPLEXITY_KEYWORDS_PATTERN = re.compile(r"\b(analyze|critique|reason)\b", re.IG
 
 # Domain keyword mappings
 DOMAIN_MAPPINGS: Dict[str, List[str]] = {
-    "medical": ["clinical", "dose"],
     "safety_critical": ["hazard", "emergency", "danger", "immediate", "adverse event"],
+    "medical": ["clinical", "dose"],
 }
 
 

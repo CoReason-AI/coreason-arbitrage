@@ -11,18 +11,17 @@ def gatekeeper() -> Gatekeeper:
 def test_multiple_domains_precedence(gatekeeper: Gatekeeper) -> None:
     """
     Test scenario where keywords from multiple domains appear in the text.
-    'medical' is defined before 'safety_critical' in DOMAIN_MAPPINGS.
+    'safety_critical' is defined before 'medical' in DOMAIN_MAPPINGS (prioritized).
     Text: "The clinical trial reported an immediate danger."
     - 'clinical' -> medical
     - 'danger' -> safety_critical
-    Expected: 'medical' (first match wins)
+    Expected: 'safety_critical' (safety checks must take precedence)
     """
     text = "The clinical trial reported an immediate danger."
     context = gatekeeper.classify(text)
 
-    # We expect 'medical' because it is checked first in the implementation
-    # (dict order is preserved in Python 3.7+)
-    assert context.domain == "medical"
+    # We expect 'safety_critical' because it is now checked first
+    assert context.domain == "safety_critical"
     assert context.complexity == 0.1  # 'danger' is not a complexity keyword, nor 'clinical'
 
 
