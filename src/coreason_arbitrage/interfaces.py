@@ -22,6 +22,12 @@ class BudgetClient(Protocol):
         """
         ...
 
+    def deduct_funds(self, user_id: str, amount: float) -> None:
+        """
+        Deducts the specified amount from the user's budget.
+        """
+        ...
+
 
 @runtime_checkable
 class AuditClient(Protocol):
