@@ -119,3 +119,35 @@ def test_zero_cost_deduction(smart_client: SmartClient, mock_engine: MagicMock) 
 
         # Cost should be 0.0
         mock_engine.budget_client.deduct_funds.assert_called_once_with("test_user", 0.0)
+
+
+def test_fail_open_missing_usage_logs_error(smart_client: SmartClient, mock_engine: MagicMock) -> None:
+    """
+    Verify that if response.usage is missing in fail-open, the response is returned, and accounting is skipped safely.
+    """
+    messages = [{"role": "user", "content": "Hello"}]
+
+    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+        # Force fail-open
+        from typing import cast
+        from unittest.mock import MagicMock
+
+        cast(MagicMock, smart_client.chat.completions.router.route).side_effect = RuntimeError("No models")
+
+        mock_response = MagicMock()
+        # Delete usage attribute to simulate missing data
+        del mock_response.usage
+
+        mock_completion.return_value = mock_response
+        mock_engine.budget_client.check_allowance.return_value = True
+
+        response = smart_client.chat.completions.create(messages, user="test_user")
+
+        # Should return the response successfully
+        assert response == mock_response
+
+        # Should NOT call deduct_funds (skipped due to error in cost calc)
+        mock_engine.budget_client.deduct_funds.assert_not_called()
+
+        # Should NOT call audit (skipped)
+        mock_engine.audit_client.log_transaction.assert_not_called()
