@@ -79,10 +79,10 @@ def test_classify_medical_domain_keyword(gatekeeper: Gatekeeper) -> None:
 
 
 def test_classify_medical_domain_multiword_keyword(gatekeeper: Gatekeeper) -> None:
-    """Test 'adverse event' triggers medical domain."""
+    """Test 'adverse event' triggers safety_critical domain."""
     text = "Report any adverse event immediately."
     context = gatekeeper.classify(text)
-    assert context.domain == "medical"
+    assert context.domain == "safety_critical"
 
 
 def test_classify_safety_critical_domain(gatekeeper: Gatekeeper) -> None:
@@ -104,7 +104,7 @@ def test_classify_domain_and_complexity(gatekeeper: Gatekeeper) -> None:
     text = "Analyze the adverse event reports."
     context = gatekeeper.classify(text)
     assert context.complexity == 0.9
-    assert context.domain == "medical"
+    assert context.domain == "safety_critical"
 
 
 def test_classify_false_positive_domain(gatekeeper: Gatekeeper) -> None:
