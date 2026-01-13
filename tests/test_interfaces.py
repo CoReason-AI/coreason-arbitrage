@@ -12,6 +12,9 @@ class MockBudgetClient:
     def get_remaining_budget_percentage(self, user_id: str) -> float:
         return 0.5
 
+    def deduct_funds(self, user_id: str, amount: float) -> None:
+        pass
+
 
 class MockAuditClient:
     def log_transaction(
@@ -62,6 +65,9 @@ class CompleteBudgetImpl(BaseBudgetImpl):
 
     def get_remaining_budget_percentage(self, user_id: str) -> float:
         return 0.8
+
+    def deduct_funds(self, user_id: str, amount: float) -> None:
+        pass
 
 
 # --- Tests ---
