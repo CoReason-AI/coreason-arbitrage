@@ -63,8 +63,8 @@ def test_keyword_at_end_of_long_text(gatekeeper: Gatekeeper) -> None:
 
     # Should be High complexity due to length
     assert context.complexity == 0.9
-    # Should be 'medical' due to 'adverse event'
-    assert context.domain == "medical"
+    # Should be 'safety_critical' due to 'adverse event'
+    assert context.domain == "safety_critical"
 
 
 def test_json_structure_analysis(gatekeeper: Gatekeeper) -> None:
