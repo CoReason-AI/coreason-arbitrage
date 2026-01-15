@@ -3,6 +3,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from litellm.exceptions import ServiceUnavailableError
 
 from coreason_arbitrage.engine import ArbitrageEngine
 from coreason_arbitrage.interfaces import AuditClient, BudgetClient
@@ -62,7 +63,7 @@ def test_cascading_failover(configured_engine: ArbitrageEngine) -> None:
 
         def side_effect(model: str, messages: Any, **kwargs: Any) -> Any:
             if model == "azure-model":
-                raise Exception("Azure 503 Service Unavailable")
+                raise ServiceUnavailableError("Azure 503 Service Unavailable", model=model, llm_provider="azure")
             elif model == "aws-model":
                 return MagicMock(id="aws-response")
             return MagicMock()
@@ -102,7 +103,9 @@ def test_total_outage(configured_engine: ArbitrageEngine) -> None:
     messages = [{"role": "user", "content": "hello"}]
 
     with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
-        mock_completion.side_effect = Exception("Global Outage")
+        mock_completion.side_effect = ServiceUnavailableError(
+            "Global Outage", model="azure-model", llm_provider="azure"
+        )
 
         with patch("coreason_arbitrage.load_balancer.FAILURE_THRESHOLD", 0):
             # The exception might be "No healthy models" because the model gets marked unhealthy
@@ -136,7 +139,9 @@ def test_concurrency_stress(configured_engine: ArbitrageEngine) -> None:
         try:
             # We simulate failure
             with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
-                mock_completion.side_effect = Exception("Concurrency Error")
+                mock_completion.side_effect = ServiceUnavailableError(
+                    "Concurrency Error", model="azure-model", llm_provider="azure"
+                )
                 client.chat.completions.create(messages=[{"role": "user", "content": "stress"}])
         except Exception:
             pass

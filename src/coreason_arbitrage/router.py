@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from coreason_arbitrage.interfaces import BudgetClient
 from coreason_arbitrage.load_balancer import LoadBalancer
@@ -23,11 +23,18 @@ class Router:
         self.budget_client = budget_client
         self.load_balancer = load_balancer
 
-    def route(self, context: RoutingContext, user_id: str) -> ModelDefinition:
+    def route(
+        self,
+        context: RoutingContext,
+        user_id: str,
+        excluded_providers: Optional[List[str]] = None,
+    ) -> ModelDefinition:
         """
         Selects the optimal model for the given context and user.
 
         Logic:
+        0. Exclusion Filtering:
+           - Remove models where provider is in `excluded_providers`.
         1. Determine Baseline Tier:
            - Tier 3: Complexity >= 0.8 OR Domain == 'safety_critical'
            - Tier 2: 0.4 <= Complexity < 0.8
@@ -78,6 +85,13 @@ class Router:
             domain_candidates = self.registry.list_models(domain=context.domain)
             # Filter by health
             healthy_domain_candidates = [m for m in domain_candidates if m.is_healthy]
+
+            # Filter by excluded providers
+            if excluded_providers:
+                healthy_domain_candidates = [
+                    m for m in healthy_domain_candidates if m.provider not in excluded_providers
+                ]
+
             if self.load_balancer:
                 healthy_domain_candidates = [
                     m for m in healthy_domain_candidates if self.load_balancer.is_provider_healthy(m.provider)
@@ -103,6 +117,10 @@ class Router:
 
         # Filter by static health check
         healthy_candidates = [m for m in candidates if m.is_healthy]
+
+        # Filter by excluded providers
+        if excluded_providers:
+            healthy_candidates = [m for m in healthy_candidates if m.provider not in excluded_providers]
 
         # Filter by LoadBalancer (dynamic health check)
         if self.load_balancer:

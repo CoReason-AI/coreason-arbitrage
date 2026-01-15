@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from litellm.exceptions import ServiceUnavailableError
 
 from coreason_arbitrage.engine import ArbitrageEngine
 from coreason_arbitrage.interfaces import AuditClient, BudgetClient
@@ -90,11 +91,15 @@ def test_smart_client_execution_failure_updates_lb(
     messages = [{"role": "user", "content": "hello"}]
 
     with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
-        mock_completion.side_effect = Exception("API Error")
+        mock_completion.side_effect = ServiceUnavailableError(
+            "API Error", model="test-model", llm_provider="test-provider"
+        )
 
         # LB should be updated
         with patch.object(configured_engine.load_balancer, "record_failure") as mock_record_failure:
-            with pytest.raises(Exception, match="API Error"):
+            # Expect generic Exception or RuntimeError because retries will fail with "No healthy models"
+            # after the provider is excluded.
+            with pytest.raises(RuntimeError):
                 client.chat.completions.create(messages=messages, user="test_user")
 
             mock_record_failure.assert_called_with("test-provider")
