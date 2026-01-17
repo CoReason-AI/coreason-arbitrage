@@ -9,9 +9,10 @@
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from litellm import completion
+from litellm.exceptions import APIConnectionError, RateLimitError, ServiceUnavailableError
 
 from coreason_arbitrage.engine import ArbitrageEngine
 from coreason_arbitrage.gatekeeper import Gatekeeper
@@ -77,10 +78,14 @@ class CompletionsWrapper:
 
         # Retry Loop
         last_exception: Optional[Exception] = None
+        failed_providers: Set[str] = set()
+
         for attempt in range(MAX_RETRIES):
             try:
                 # 3. Routing (Inside loop to pick up new healthy models)
-                model_def: ModelDefinition = self.router.route(routing_context, user_id)
+                model_def: ModelDefinition = self.router.route(
+                    routing_context, user_id, excluded_providers=list(failed_providers)
+                )
                 logger.info(f"Selected model (Attempt {attempt + 1}): {model_def.id} ({model_def.provider})")
 
                 # 4. Execution
@@ -140,9 +145,27 @@ class CompletionsWrapper:
                 logger.error(f"Execution failed on attempt {attempt + 1}: {e}")
                 last_exception = e
 
-                # Update LoadBalancer
+                # Update LoadBalancer and Exclude Provider
                 if "model_def" in locals():
-                    self.engine.load_balancer.record_failure(model_def.provider)
+                    # Only record failures for specific availability errors or if specifically requested
+                    # And exclude provider from subsequent attempts in this request
+                    if isinstance(e, (RateLimitError, ServiceUnavailableError, APIConnectionError)):
+                        self.engine.load_balancer.record_failure(model_def.provider)
+                        failed_providers.add(model_def.provider)
+                        logger.warning(
+                            f"Provider {model_def.provider} failed with critical error. Excluding from retry."
+                        )
+                    else:
+                        # For other errors, we might still record generic failure but maybe not exclude immediately?
+                        # User spec: "On a relevant error (5xx/429), add the current model's provider to that set"
+                        # But for safety in failover logic, if a model fails execution,
+                        # we generally want to try another.
+                        # However, strictly following the instruction to "Restrict LoadBalancer to ... 5xx/429":
+                        # We only record failure for those.
+                        # Do we exclude for others?
+                        # If it's a BadRequestError, switching provider might not help (bad prompt).
+                        # So we stick to excluding only on relevant errors.
+                        pass
 
                 # Continue to next attempt
                 continue
