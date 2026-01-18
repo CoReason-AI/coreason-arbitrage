@@ -145,22 +145,24 @@ def test_concurrency_stress(configured_engine: ArbitrageEngine) -> None:
 
     client = configured_engine.get_client()
 
-    def worker() -> None:
-        try:
-            # We simulate failure
-            with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
-                mock_completion.side_effect = ServiceUnavailableError(
-                    "Concurrency Error", model="azure-model", llm_provider="azure"
-                )
-                client.chat.completions.create(messages=[{"role": "user", "content": "stress"}])
-        except Exception:
-            pass
+    # Move patch outside threads to avoid race conditions with global module patching
+    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+        mock_completion.side_effect = ServiceUnavailableError(
+            "Concurrency Error", model="azure-model", llm_provider="azure"
+        )
 
-    threads = [threading.Thread(target=worker) for _ in range(10)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+        def worker() -> None:
+            try:
+                # We simulate failure
+                client.chat.completions.create(messages=[{"role": "user", "content": "stress"}])
+            except Exception:
+                pass
+
+        threads = [threading.Thread(target=worker) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
     # Azure should definitely be unhealthy now
     assert not configured_engine.load_balancer.is_provider_healthy("azure")
