@@ -16,6 +16,12 @@ from coreason_arbitrage.utils.logger import logger
 
 
 class ModelRegistry:
+    """Singleton registry for storing and retrieving model definitions.
+
+    Thread-safe storage for model configurations, supporting lookups by ID,
+    tier, and domain.
+    """
+
     _instance: Optional["ModelRegistry"] = None
     _lock: threading.Lock = threading.Lock()
     _initialized: bool = False
@@ -40,24 +46,39 @@ class ModelRegistry:
             logger.info("ModelRegistry initialized")
 
     def register_model(self, model: ModelDefinition) -> None:
-        """
-        Registers a model in the registry.
-        If a model with the same ID exists, it is updated.
+        """Registers a model in the registry.
+
+        If a model with the same ID exists, it is overwritten.
+
+        Args:
+            model: The ModelDefinition object to register.
         """
         with self._lock:
             self._models[model.id] = model
             logger.debug(f"Registered model: {model.id} (Tier: {model.tier})")
 
     def get_model(self, model_id: str) -> Optional[ModelDefinition]:
-        """
-        Retrieves a model by its ID.
+        """Retrieves a model by its ID.
+
+        Args:
+            model_id: The unique identifier of the model.
+
+        Returns:
+            The ModelDefinition if found, otherwise None.
         """
         return self._models.get(model_id)
 
     def list_models(self, tier: Optional[ModelTier] = None, domain: Optional[str] = None) -> List[ModelDefinition]:
-        """
-        Lists all models, optionally filtered by tier and/or domain.
+        """Lists all models, optionally filtered by tier and/or domain.
+
         Domain matching is case-insensitive.
+
+        Args:
+            tier: Optional ModelTier to filter by.
+            domain: Optional domain string to filter by.
+
+        Returns:
+            A list of matching ModelDefinition objects.
         """
         with self._lock:
             all_models = list(self._models.values())
@@ -73,8 +94,9 @@ class ModelRegistry:
         return filtered
 
     def clear(self) -> None:
-        """
-        Clears the registry (useful for testing).
+        """Clears the registry.
+
+        This is primarily used for testing purposes to reset state.
         """
         with self._lock:
             self._models.clear()

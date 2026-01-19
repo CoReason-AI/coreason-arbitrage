@@ -18,6 +18,13 @@ from coreason_arbitrage.utils.logger import logger
 
 
 class ArbitrageEngine:
+    """Singleton engine that orchestrates model routing, load balancing, and client management.
+
+    This class serves as the central point of the coreason-arbitrage system, maintaining
+    global state such as the LoadBalancer and ModelRegistry. It ensures that provider health
+    and model configurations are shared across all client instances.
+    """
+
     _instance: Optional["ArbitrageEngine"] = None
     _lock: threading.Lock = threading.Lock()
     _initialized: bool
@@ -53,8 +60,12 @@ class ArbitrageEngine:
         audit_client: AuditClient,
         foundry_client: ModelFoundryClient,
     ) -> None:
-        """
-        Injects external dependencies into the engine and performs initial synchronization.
+        """Injects external dependencies into the engine and performs initial synchronization.
+
+        Args:
+            budget_client: Client implementation for budget checks and deductions.
+            audit_client: Client implementation for transaction logging.
+            foundry_client: Client implementation for fetching custom models.
         """
         with self._lock:
             self.budget_client = budget_client
@@ -74,8 +85,14 @@ class ArbitrageEngine:
                 logger.error(f"Failed to pull models from ModelFoundry: {e}")
 
     def get_client(self, capability: str = "reasoning") -> "SmartClient":  # type: ignore[name-defined] # noqa: F821
-        """
-        Returns a SmartClient instance configured for the engine.
+        """Returns a SmartClient instance configured for the engine.
+
+        Args:
+            capability: The desired capability (e.g., 'reasoning'). Currently unused
+                but reserved for future specific client configuration.
+
+        Returns:
+            A SmartClient instance ready for making requests.
         """
         from coreason_arbitrage.smart_client import SmartClient
 
