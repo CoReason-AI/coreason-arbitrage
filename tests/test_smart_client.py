@@ -58,7 +58,7 @@ def test_smart_client_gatekeeper_integration() -> None:
 
     messages = [{"role": "user", "content": "Analyze this protocol."}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_completion.return_value = MagicMock()
         client.chat.completions.create(messages=messages)
         mock_completion.assert_called_once()
@@ -91,7 +91,7 @@ def test_smart_client_gatekeeper_logic_called() -> None:
 
             client = engine.get_client()
 
-            with patch("coreason_arbitrage.smart_client.completion"):
+            with patch("coreason_arbitrage.smart_client.acompletion"):
                 client.chat.completions.create(messages=[{"role": "user", "content": "test"}])
 
             instance.classify.assert_called_once_with("test")
@@ -127,7 +127,7 @@ def test_smart_client_empty_prompt_warning() -> None:
     client = engine.get_client()
 
     with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
-        with patch("coreason_arbitrage.smart_client.completion"):
+        with patch("coreason_arbitrage.smart_client.acompletion"):
             # Empty messages or no user message
             client.chat.completions.create(messages=[{"role": "system", "content": "sys"}])
             mock_logger.warning.assert_any_call(
@@ -155,7 +155,7 @@ def test_smart_client_audit_logging_failure() -> None:
 
     client = engine.get_client()
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_completion.return_value = MagicMock()
 
         with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
@@ -180,7 +180,7 @@ def test_smart_client_routing_failure_fails_open() -> None:
 
     with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
         # Should NOT raise RuntimeError anymore, but return a response (mocked)
-        with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+        with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
             mock_completion.return_value = MagicMock()
 
             client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
@@ -210,7 +210,7 @@ def test_smart_client_zero_retries_fail_open() -> None:
     client = engine.get_client()
 
     with patch("coreason_arbitrage.smart_client.MAX_RETRIES", 0):
-        with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+        with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
             mock_completion.return_value = MagicMock()
 
             client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])

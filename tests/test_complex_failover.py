@@ -74,7 +74,7 @@ def test_domain_to_generic_fallback() -> None:
         else:
             raise ValueError(f"Unknown model: {model}")
 
-    with patch("coreason_arbitrage.smart_client.completion", side_effect=side_effect) as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion", side_effect=side_effect) as mock_completion:
         # Prompt "clinical" triggers 'medical' domain and Tier 3 (via complexity or just domain match)
         # Gatekeeper: medical -> medical domain.
         # Router: Tier 3 target.
@@ -116,7 +116,7 @@ def test_non_critical_error_does_not_exclude() -> None:
 
     client = engine.get_client()
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         # Side effect: Always raise BadRequestError
         mock_completion.side_effect = BadRequestError("Bad Request", model="bad-model", llm_provider="bad-provider")
 
@@ -189,7 +189,7 @@ def test_full_exhaustion_fail_open() -> None:
 
     client = engine.get_client()
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         # Both fail
         def side_effect(model: str, **kwargs: Any) -> Any:
             if model == "model-a":
