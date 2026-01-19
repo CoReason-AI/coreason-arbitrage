@@ -46,7 +46,7 @@ def test_fail_open_default_fallback() -> None:
 
     # Mock Router.route to raise Exception
     with patch.object(client.chat.completions.router, "route", side_effect=RuntimeError("Router Crashed")):
-        with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+        with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
             with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
                 # Setup mock completion response
                 mock_response = MagicMock()
@@ -87,7 +87,7 @@ def test_fail_open_custom_fallback_env_var() -> None:
 
     with patch.dict(os.environ, {"ARBITRAGE_FALLBACK_MODEL": custom_model}):
         with patch.object(client.chat.completions.router, "route", side_effect=RuntimeError("Router Crashed")):
-            with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+            with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
                 mock_completion.return_value = MagicMock()
 
                 client.chat.completions.create(messages=[{"role": "user", "content": "Hello"}])
@@ -110,7 +110,7 @@ def test_fail_open_cascading_failure() -> None:
     client = engine.get_client()
 
     with patch.object(client.chat.completions.router, "route", side_effect=RuntimeError("Router Crashed")):
-        with patch("coreason_arbitrage.smart_client.completion", side_effect=Exception("Fallback Failed")):
+        with patch("coreason_arbitrage.smart_client.acompletion", side_effect=Exception("Fallback Failed")):
             with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
                 # We expect the ORIGINAL exception (Router Crashed) to be raised
                 with pytest.raises(RuntimeError, match="Router Crashed"):
@@ -141,7 +141,7 @@ def test_fail_open_audit_failure() -> None:
     client = engine.get_client()
 
     with patch.object(client.chat.completions.router, "route", side_effect=RuntimeError("Router Crashed")):
-        with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+        with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
             with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
                 mock_response = MagicMock()
                 mock_completion.return_value = mock_response
@@ -151,7 +151,7 @@ def test_fail_open_audit_failure() -> None:
                 assert response == mock_response
 
                 # Verify Error log for Audit
-                mock_logger.error.assert_called_with("Audit logging failed during fail-open: Audit DB Down")
+                mock_logger.error.assert_called_with("Audit logging failed: Audit DB Down")
 
 
 def test_fail_open_invalid_env_var() -> None:
@@ -189,6 +189,6 @@ def test_fail_open_immediate_failure_with_zero_retries() -> None:
     client = engine.get_client()
 
     with patch("coreason_arbitrage.smart_client.MAX_RETRIES", 0):
-        with patch("coreason_arbitrage.smart_client.completion", side_effect=Exception("Fallback Error")):
+        with patch("coreason_arbitrage.smart_client.acompletion", side_effect=Exception("Fallback Error")):
             with pytest.raises(Exception, match="Fallback Error"):
                 client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])

@@ -44,8 +44,8 @@ def smart_client(mock_engine: MagicMock, mock_gatekeeper: MagicMock) -> SmartCli
         client = SmartClient(mock_engine)
         # We also need to inject our mock engine back into the completions wrapper
         # because SmartClient init might store it differently or pass it down
-        client.chat.completions.engine = mock_engine
-        client.chat.completions.gatekeeper = mock_gatekeeper
+        client.chat.completions._async.engine = mock_engine
+        client.chat.completions._async.gatekeeper = mock_gatekeeper
 
         # Also need to mock the router inside completions wrapper to return a model
         mock_router = MagicMock()
@@ -70,7 +70,7 @@ def test_create_deducts_funds_on_success(smart_client: SmartClient, mock_engine:
     messages = [{"role": "user", "content": "Hello"}]
 
     # Mock litellm.completion
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_response = MagicMock()
         mock_response.usage.prompt_tokens = 1000
         mock_response.usage.completion_tokens = 1000
@@ -85,7 +85,7 @@ def test_create_deducts_funds_on_success(smart_client: SmartClient, mock_engine:
         # Input: 1000/1000 * 0.01 = 0.01
         # Output: 1000/1000 * 0.02 = 0.02
         # Total: 0.03
-        mock_engine.budget_client.deduct_funds.assert_called_once_with("test_user", 0.03)
+        mock_engine.budget_client.deduct_funds.assert_called_once_with(user_id="test_user", amount=0.03)
 
 
 def test_create_deduction_failure_logs_error(smart_client: SmartClient, mock_engine: MagicMock) -> None:
@@ -95,7 +95,7 @@ def test_create_deduction_failure_logs_error(smart_client: SmartClient, mock_eng
     """
     messages = [{"role": "user", "content": "Hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_response = MagicMock()
         mock_response.usage.prompt_tokens = 1000
         mock_response.usage.completion_tokens = 1000
@@ -118,7 +118,7 @@ def test_fail_open_deducts_funds(smart_client: SmartClient, mock_engine: MagicMo
     messages = [{"role": "user", "content": "Hello"}]
 
     # Mock completion to fail initially then succeed on fallback
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         # Side effect: Raise exception for routing attempts (Simulating Router failure or completion failure)
         # But wait, fail-open happens if all retries fail OR Router crashes.
         # Let's simulate Router crash.
@@ -139,7 +139,7 @@ def test_fail_open_deducts_funds(smart_client: SmartClient, mock_engine: MagicMo
 
         # Fallback model pricing (from code): Input 0.005, Output 0.015
         # Cost: 1000/1000*0.005 + 1000/1000*0.015 = 0.02
-        mock_engine.budget_client.deduct_funds.assert_called_once_with("test_user", 0.02)
+        mock_engine.budget_client.deduct_funds.assert_called_once_with(user_id="test_user", amount=0.02)
 
 
 def test_fail_open_deduction_failure_logs_error(smart_client: SmartClient, mock_engine: MagicMock) -> None:
@@ -148,7 +148,7 @@ def test_fail_open_deduction_failure_logs_error(smart_client: SmartClient, mock_
     """
     messages = [{"role": "user", "content": "Hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         cast(MagicMock, smart_client.chat.completions.router.route).side_effect = RuntimeError("No models")
 
         mock_response = MagicMock()

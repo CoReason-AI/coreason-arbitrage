@@ -93,7 +93,7 @@ def test_request_scoped_failover() -> None:
     engine.registry.register_model(aws_model)  # AWS added second
     # Note: Python dicts preserve insertion order in 3.7+, so listing models should yield Azure first.
 
-    with patch("coreason_arbitrage.smart_client.completion", side_effect=side_effect) as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion", side_effect=side_effect) as mock_completion:
         # Run
         # Prompt "Analyze" triggers Tier 3
         messages = [{"role": "user", "content": "Analyze this data."}]

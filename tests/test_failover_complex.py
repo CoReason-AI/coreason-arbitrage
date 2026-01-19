@@ -69,7 +69,7 @@ def test_total_meltdown_fail_open(complex_engine: ArbitrageEngine) -> None:
             provider = model.split("/")[0]
             raise ServiceUnavailableError("Down", model=model, llm_provider=provider)
 
-        with patch("coreason_arbitrage.smart_client.completion", side_effect=side_effect) as mock_completion:
+        with patch("coreason_arbitrage.smart_client.acompletion", side_effect=side_effect) as mock_completion:
             messages = [{"role": "user", "content": "Analyze."}]
 
             # We expect a success eventually (Fail Open Success) or return of the mock
@@ -126,7 +126,7 @@ def test_mixed_failure_types(complex_engine: ArbitrageEngine) -> None:
                     raise BadRequestError("Bad Prompt", model=model, llm_provider="provider2")
                 return MagicMock()
 
-            with patch("coreason_arbitrage.smart_client.completion", side_effect=side_effect):
+            with patch("coreason_arbitrage.smart_client.acompletion", side_effect=side_effect):
                 messages = [{"role": "user", "content": "Bad Request."}]
 
                 # It should eventually raise BadRequestError (if it propagates last exception)

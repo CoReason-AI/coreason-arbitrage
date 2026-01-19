@@ -8,10 +8,13 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
+import functools
 import os
 from typing import Any, Dict, List, Optional, Set
 
-from litellm import completion
+import anyio
+import httpx
+from litellm import acompletion
 from litellm.exceptions import APIConnectionError, RateLimitError, ServiceUnavailableError
 
 from coreason_arbitrage.engine import ArbitrageEngine
@@ -24,44 +27,37 @@ MAX_RETRIES = 3
 RETRIABLE_ERRORS = (RateLimitError, ServiceUnavailableError, APIConnectionError)
 
 
-class CompletionsWrapper:
-    """Proxy for chat.completions.
+class CompletionsWrapperAsync:
+    """Async Proxy for chat.completions.
 
     Handles the core logic of classification, routing, execution, and failover.
     """
 
-    def __init__(self, engine: ArbitrageEngine, gatekeeper: Gatekeeper) -> None:
+    def __init__(
+        self,
+        engine: ArbitrageEngine,
+        gatekeeper: Gatekeeper,
+        client: Optional[httpx.AsyncClient],
+    ) -> None:
         self.engine = engine
         self.gatekeeper = gatekeeper
+        self._client = client
 
         if self.engine.budget_client is None:
             logger.warning("ArbitrageEngine not configured with BudgetClient. Router might fail.")
 
-        # Inject LoadBalancer into Router for dynamic health checks
-        # We ignore type for budget_client as it might be None but we handle it in Router or assume configured
         self.router = Router(
             self.engine.registry,
             self.engine.budget_client,  # type: ignore
             self.engine.load_balancer,
         )
 
-    def create(self, messages: List[Dict[str, str]], **kwargs: Any) -> Any:
-        """Orchestrates the Classify-Route-Execute loop.
-
-        This method performs the following steps:
-        1. Checks User Budget.
-        2. Classifies the prompt (Gatekeeper).
-        3. Routes to the optimal model (Router).
-        4. Executes the request via `litellm`.
-        5. Logs the transaction and deducts funds.
-
-        It implements retry logic with provider exclusion and Fail-Open behavior.
+    async def create(self, messages: List[Dict[str, str]], **kwargs: Any) -> Any:
+        """Orchestrates the Classify-Route-Execute loop asynchronously.
 
         Args:
             messages: A list of message dictionaries (role, content).
-            **kwargs: Additional arguments passed to `litellm.completion`.
-                Note: The `model` argument is determined by the Router and should
-                generally not be passed by the user, or it will be ignored/overwritten.
+            **kwargs: Additional arguments passed to `litellm.acompletion`.
 
         Returns:
             The response object from the LLM provider.
@@ -75,13 +71,13 @@ class CompletionsWrapper:
         # 0. Budget Check (Pre-flight)
         if self.engine.budget_client:
             try:
-                if not self.engine.budget_client.check_allowance(user_id):
+                allowed = await anyio.to_thread.run_sync(self.engine.budget_client.check_allowance, user_id)
+                if not allowed:
                     logger.warning(f"Budget exceeded for user {user_id}. Denying request.")
                     raise PermissionError("Budget exceeded.")
             except PermissionError:
                 raise
             except Exception as e:
-                # Fail Closed: If DB down, deny.
                 logger.error(f"Budget check failed: {e}. Failing Closed.")
                 raise PermissionError("Budget check failed.") from e
 
@@ -96,6 +92,7 @@ class CompletionsWrapper:
             logger.warning("No user message found in messages list. Using empty string for classification.")
 
         # 2. Gatekeeper Classification
+        # Regex is fast, so running on main thread is fine.
         routing_context = self.gatekeeper.classify(prompt)
         logger.info(f"Classified request: {routing_context}")
 
@@ -112,46 +109,13 @@ class CompletionsWrapper:
                 logger.info(f"Selected model (Attempt {attempt + 1}): {model_def.id} ({model_def.provider})")
 
                 # 4. Execution
-                response = completion(model=model_def.id, messages=messages, **kwargs)
+                response = await acompletion(model=model_def.id, messages=messages, **kwargs)
 
                 # Record Success
                 self.engine.load_balancer.record_success(model_def.provider)
 
                 # 5. Cost Calculation & Accounting
-                try:
-                    usage = response.usage
-                    input_tokens = usage.prompt_tokens
-                    output_tokens = usage.completion_tokens
-
-                    # Calculate cost (simplified)
-                    cost = (input_tokens / 1000 * model_def.cost_per_1k_input) + (
-                        output_tokens / 1000 * model_def.cost_per_1k_output
-                    )
-
-                    # Audit Logging
-                    if self.engine.audit_client:
-                        try:
-                            self.engine.audit_client.log_transaction(
-                                user_id=user_id,
-                                model_id=model_def.id,
-                                input_tokens=input_tokens,
-                                output_tokens=output_tokens,
-                                cost=cost,
-                            )
-                        except Exception as e:
-                            logger.error(f"Audit logging failed: {e}")
-
-                    # Budget Deduction
-                    if self.engine.budget_client:
-                        try:
-                            self.engine.budget_client.deduct_funds(user_id, cost)
-                        except Exception as e:
-                            # Log error but do not fail the request since response is already generated
-                            logger.error(f"Failed to deduct funds for user {user_id}: {e}")
-                except Exception as e:
-                    logger.error(
-                        f"Accounting/Cost Calculation failed: {e}. Skipping accounting but returning response."
-                    )
+                await self._handle_accounting(user_id, model_def, response)
 
                 return response
 
@@ -159,8 +123,6 @@ class CompletionsWrapper:
                 # Routing failed (e.g. no healthy models)
                 logger.error(f"Routing failed on attempt {attempt + 1}: {e}")
                 last_exception = e
-                # If routing fails, it usually means no healthy models. Retrying immediately might not help
-                # unless a model recovers in milliseconds. But we respect MAX_RETRIES.
                 continue
 
             except Exception as e:
@@ -168,85 +130,74 @@ class CompletionsWrapper:
                 logger.error(f"Execution failed on attempt {attempt + 1}: {e}")
                 last_exception = e
 
-                # Update LoadBalancer and Exclude Provider
-                if "model_def" in locals():
-                    # Only record failures for specific availability errors or if specifically requested
-                    # And exclude provider from subsequent attempts in this request
-                    if isinstance(e, RETRIABLE_ERRORS):
-                        self.engine.load_balancer.record_failure(model_def.provider)
-                        failed_providers.add(model_def.provider)
-                        logger.warning(
-                            f"Provider {model_def.provider} failed with critical error. Excluding from retry."
-                        )
-                    else:
-                        # For other errors, we might still record generic failure but maybe not exclude immediately?
-                        # User spec: "On a relevant error (5xx/429), add the current model's provider to that set"
-                        # But for safety in failover logic, if a model fails execution,
-                        # we generally want to try another.
-                        # However, strictly following the instruction to "Restrict LoadBalancer to ... 5xx/429":
-                        # We only record failure for those.
-                        # Do we exclude for others?
-                        # If it's a BadRequestError, switching provider might not help (bad prompt).
-                        # So we stick to excluding only on relevant errors.
-                        pass
+                if "model_def" in locals() and isinstance(e, RETRIABLE_ERRORS):
+                    self.engine.load_balancer.record_failure(model_def.provider)
+                    failed_providers.add(model_def.provider)
+                    logger.warning(f"Provider {model_def.provider} failed with critical error. Excluding from retry.")
 
-                # Continue to next attempt
                 continue
 
         # If exhausted retries, Fail Open
         logger.critical(f"Max retries exhausted. Fail-Open triggered. Last error: {last_exception}")
+        return await self._fail_open(messages, user_id, last_exception, **kwargs)
 
+    async def _handle_accounting(self, user_id: str, model_def: ModelDefinition, response: Any) -> None:
+        try:
+            usage = response.usage
+            input_tokens = usage.prompt_tokens
+            output_tokens = usage.completion_tokens
+
+            cost = (input_tokens / 1000 * model_def.cost_per_1k_input) + (
+                output_tokens / 1000 * model_def.cost_per_1k_output
+            )
+
+            # Audit Logging
+            if self.engine.audit_client:
+                try:
+                    func = functools.partial(
+                        self.engine.audit_client.log_transaction,
+                        user_id=user_id,
+                        model_id=model_def.id,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cost=cost,
+                    )
+                    await anyio.to_thread.run_sync(func)
+                except Exception as e:
+                    logger.error(f"Audit logging failed: {e}")
+
+            # Budget Deduction
+            if self.engine.budget_client:
+                try:
+                    func = functools.partial(self.engine.budget_client.deduct_funds, user_id=user_id, amount=cost)
+                    await anyio.to_thread.run_sync(func)
+                except Exception as e:
+                    logger.error(f"Failed to deduct funds for user {user_id}: {e}")
+        except Exception as e:
+            logger.error(f"Accounting/Cost Calculation failed: {e}. Skipping accounting but returning response.")
+
+    async def _fail_open(
+        self,
+        messages: List[Dict[str, str]],
+        user_id: str,
+        last_exception: Optional[Exception],
+        **kwargs: Any,
+    ) -> Any:
         fallback_model_id = os.environ.get("ARBITRAGE_FALLBACK_MODEL", "azure/gpt-4o")
         logger.warning(f"Attempting Fail-Open with model: {fallback_model_id}")
 
-        # Construct safe default model definition for audit/tracking
-        # We assume standard GPT-4o pricing or $0 if unknown
         fallback_model = ModelDefinition(
             id=fallback_model_id,
             provider="failover",
             tier=ModelTier.TIER_3_REASONING,
-            cost_per_1k_input=0.005,  # Estimated
+            cost_per_1k_input=0.005,
             cost_per_1k_output=0.015,
             is_healthy=True,
         )
 
         try:
-            response = completion(model=fallback_model.id, messages=messages, **kwargs)
-
-            # Record success (maybe not for load balancer since provider is fake/failover)
-            # But we should log audit and deduct funds
-
-            try:
-                usage = response.usage
-                input_tokens = usage.prompt_tokens
-                output_tokens = usage.completion_tokens
-                cost = (input_tokens / 1000 * fallback_model.cost_per_1k_input) + (
-                    output_tokens / 1000 * fallback_model.cost_per_1k_output
-                )
-
-                if self.engine.audit_client:
-                    try:
-                        self.engine.audit_client.log_transaction(
-                            user_id=user_id,
-                            model_id=fallback_model.id,
-                            input_tokens=input_tokens,
-                            output_tokens=output_tokens,
-                            cost=cost,
-                        )
-                    except Exception as e:
-                        logger.error(f"Audit logging failed during fail-open: {e}")
-
-                if self.engine.budget_client:
-                    try:
-                        self.engine.budget_client.deduct_funds(user_id, cost)
-                    except Exception as e:
-                        logger.error(f"Failed to deduct funds during fail-open for user {user_id}: {e}")
-            except Exception as e:
-                logger.error(
-                    f"Accounting/Cost Calculation failed during fail-open: {e}. "
-                    "Skipping accounting but returning response."
-                )
-
+            response = await acompletion(model=fallback_model.id, messages=messages, **kwargs)
+            await self._handle_accounting(user_id, fallback_model, response)
             return response
 
         except Exception as e:
@@ -256,19 +207,85 @@ class CompletionsWrapper:
             raise e from None
 
 
-class ChatWrapper:
-    """Proxy for chat namespace."""
+class ChatWrapperAsync:
+    """Async Proxy for chat namespace."""
 
-    def __init__(self, engine: ArbitrageEngine) -> None:
-        self.completions = CompletionsWrapper(engine, Gatekeeper())
+    def __init__(self, engine: ArbitrageEngine, client: Optional[httpx.AsyncClient]) -> None:
+        self.completions = CompletionsWrapperAsync(engine, Gatekeeper(), client)
+
+
+class SmartClientAsync:
+    """Async SmartClient proxy class.
+
+    Handles connection lifecycle and async execution.
+    """
+
+    def __init__(self, engine: ArbitrageEngine, client: Optional[httpx.AsyncClient] = None) -> None:
+        self.engine = engine
+        self._internal_client = client is None
+        self._client = client or httpx.AsyncClient()
+        self.chat = ChatWrapperAsync(engine, self._client)
+
+    async def __aenter__(self) -> "SmartClientAsync":
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._internal_client:
+            await self._client.aclose()
+
+    async def close(self) -> None:
+        """Closes the underlying HTTP client."""
+        if self._internal_client:
+            await self._client.aclose()
+
+
+class CompletionsWrapper:
+    """Sync Facade for chat.completions."""
+
+    def __init__(self, async_wrapper: CompletionsWrapperAsync) -> None:
+        self._async = async_wrapper
+
+    @property
+    def router(self) -> Router:
+        """Exposes the underlying router."""
+        return self._async.router
+
+    @router.setter
+    def router(self, value: Router) -> None:
+        self._async.router = value
+
+    def create(self, messages: List[Dict[str, str]], **kwargs: Any) -> Any:
+        """Synchronous wrapper for create."""
+
+        async def _wrapper() -> Any:
+            return await self._async.create(messages, **kwargs)
+
+        return anyio.run(_wrapper)
+
+
+class ChatWrapper:
+    """Sync Facade for chat namespace."""
+
+    def __init__(self, async_wrapper: ChatWrapperAsync) -> None:
+        self.completions = CompletionsWrapper(async_wrapper.completions)
 
 
 class SmartClient:
-    """SmartClient proxy class mimicking OpenAI client interface.
+    """Sync Facade for SmartClientAsync.
 
-    This client provides an interface compatible with standard OpenAI libraries
-    while abstracting away the underlying provider selection and failover logic.
+    Provides a blocking interface compatible with legacy code.
     """
 
     def __init__(self, engine: ArbitrageEngine) -> None:
-        self.chat = ChatWrapper(engine)
+        self._async = SmartClientAsync(engine)
+        self.chat = ChatWrapper(self._async.chat)
+
+    def __enter__(self) -> "SmartClient":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        anyio.run(self._async.__aexit__, exc_type, exc_val, exc_tb)
+
+    def close(self) -> None:
+        """Closes the underlying resources."""
+        anyio.run(self._async.close)

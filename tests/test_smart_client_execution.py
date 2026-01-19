@@ -55,7 +55,7 @@ def test_smart_client_execution_success(configured_engine: ArbitrageEngine) -> N
     messages = [{"role": "user", "content": "hello"}]
 
     # Mock litellm.completion
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_response = MagicMock()
         mock_response.usage.prompt_tokens = 10
         mock_response.usage.completion_tokens = 20
@@ -74,7 +74,7 @@ def test_smart_client_audit_logging(configured_engine: ArbitrageEngine) -> None:
     client = configured_engine.get_client()
     messages = [{"role": "user", "content": "hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_response = MagicMock()
         mock_response.usage.prompt_tokens = 1000
         mock_response.usage.completion_tokens = 1000
@@ -100,7 +100,7 @@ def test_smart_client_execution_failure_updates_lb(
     client = configured_engine.get_client()
     messages = [{"role": "user", "content": "hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_completion.side_effect = ServiceUnavailableError(
             "API Error", model="test-model", llm_provider="test-provider"
         )

@@ -40,8 +40,8 @@ def mock_gatekeeper() -> MagicMock:
 def smart_client(mock_engine: MagicMock, mock_gatekeeper: MagicMock) -> SmartClient:
     with patch("coreason_arbitrage.smart_client.Gatekeeper", return_value=mock_gatekeeper):
         client = SmartClient(mock_engine)
-        client.chat.completions.engine = mock_engine
-        client.chat.completions.gatekeeper = mock_gatekeeper
+        client.chat.completions._async.engine = mock_engine
+        client.chat.completions._async.gatekeeper = mock_gatekeeper
 
         mock_router = MagicMock()
         mock_model = ModelDefinition(
@@ -64,7 +64,7 @@ def test_audit_failure_does_not_block_deduction(smart_client: SmartClient, mock_
     """
     messages = [{"role": "user", "content": "Hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_response = MagicMock()
         mock_response.usage.prompt_tokens = 1000
         mock_response.usage.completion_tokens = 1000
@@ -82,7 +82,7 @@ def test_audit_failure_does_not_block_deduction(smart_client: SmartClient, mock_
 
         # Verify Budget Deduction was STILL called
         # Cost: 1000/1000 * 0.01 + 1000/1000 * 0.02 = 0.03
-        mock_engine.budget_client.deduct_funds.assert_called_once_with("test_user", 0.03)
+        mock_engine.budget_client.deduct_funds.assert_called_once_with(user_id="test_user", amount=0.03)
 
 
 def test_missing_usage_returns_response_skips_deduction(smart_client: SmartClient, mock_engine: MagicMock) -> None:
@@ -91,7 +91,7 @@ def test_missing_usage_returns_response_skips_deduction(smart_client: SmartClien
     """
     messages = [{"role": "user", "content": "Hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_response = MagicMock()
         # Delete usage attribute to simulate missing data
         del mock_response.usage
@@ -117,7 +117,7 @@ def test_zero_cost_deduction(smart_client: SmartClient, mock_engine: MagicMock) 
     """
     messages = [{"role": "user", "content": "Hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_response = MagicMock()
         mock_response.usage.prompt_tokens = 0
         mock_response.usage.completion_tokens = 0
@@ -128,7 +128,7 @@ def test_zero_cost_deduction(smart_client: SmartClient, mock_engine: MagicMock) 
         smart_client.chat.completions.create(messages, user="test_user")
 
         # Cost should be 0.0
-        mock_engine.budget_client.deduct_funds.assert_called_once_with("test_user", 0.0)
+        mock_engine.budget_client.deduct_funds.assert_called_once_with(user_id="test_user", amount=0.0)
 
 
 def test_fail_open_missing_usage_logs_error(smart_client: SmartClient, mock_engine: MagicMock) -> None:
@@ -137,7 +137,7 @@ def test_fail_open_missing_usage_logs_error(smart_client: SmartClient, mock_engi
     """
     messages = [{"role": "user", "content": "Hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         # Force fail-open
         from typing import cast
         from unittest.mock import MagicMock
