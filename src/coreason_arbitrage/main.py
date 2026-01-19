@@ -14,8 +14,10 @@ from coreason_arbitrage.utils.logger import logger
 def hello_world() -> str:
     """Returns a hello world message.
 
+    This function serves as a basic health check and example of a public function.
+
     Returns:
-        A string containing "Hello World!".
+        str: A string containing "Hello World!".
     """
     logger.info("Hello World!")
     return "Hello World!"
