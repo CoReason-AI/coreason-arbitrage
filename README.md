@@ -1,24 +1,12 @@
 # coreason-arbitrage
 
-[![License: Prosperity 3.0](https://img.shields.io/badge/License-Prosperity%203.0-blue)](https://prosperitylicense.com/versions/3.0.0)
-[![CI](https://github.com/CoReason-AI/coreason_arbitrage/actions/workflows/ci.yml/badge.svg)](https://github.com/CoReason-AI/coreason_arbitrage/actions/workflows/ci.yml)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+The "Traffic Controller" / The Smart Switch for CoReason-AI.
 
-**coreason-arbitrage** is the intelligent routing layer ("Traffic Controller") for CoReason-AI. It sits between agents and model providers to optimize cost, performance, and reliability.
-
-Instead of hardcoding specific models, it dynamically selects the "Right Model for the Right Task" based on prompt complexity, domain context, provider health, and budget constraints.
-
-## Features
-
--   **Cascading Model Strategy:** Automatically routes requests to the most appropriate tier:
-    -   *Tier 1 (Fast/Cheap):* Simple extraction, formatting (e.g., Llama-3-8B).
-    -   *Tier 2 (Smart/Mid):* Drafting, summarization (e.g., Llama-3-70B).
-    -   *Tier 3 (Genius/Expensive):* Complex reasoning, safety-critical tasks (e.g., GPT-4o).
--   **Gatekeeper:** Millisecond-latency classifier (Heuristic/Regex) to determine prompt complexity and domain.
--   **Circuit Breaker & Failover:** Automatically detects provider outages (e.g., Azure 5xx/429) and seamlessly fails over to backup providers (e.g., AWS Bedrock) without user interruption.
--   **Economy Mode:** Downgrades non-critical requests to cheaper tiers if the user's budget is running low (<10%).
--   **Provider Agnostic:** Built on top of [litellm](https://github.com/BerriAI/litellm) to support 100+ LLMs.
--   **Fail-Open Design:** Prioritizes system availability, falling back to safe defaults if components fail.
+[![Organization](https://img.shields.io/badge/org-CoReason--AI-blue)](https://github.com/CoReason-AI)
+[![License: Prosperity 3.0](https://img.shields.io/badge/license-Prosperity%203.0-blue)](https://github.com/CoReason-AI/coreason-arbitrage/blob/main/LICENSE)
+[![Build Status](https://github.com/CoReason-AI/coreason-arbitrage/actions/workflows/ci.yml/badge.svg)](https://github.com/CoReason-AI/coreason-arbitrage/actions)
+[![Code Style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Documentation](https://img.shields.io/badge/docs-Product%20Requirements-informational)](docs/product_requirements.md)
 
 ## Installation
 
@@ -26,49 +14,34 @@ Instead of hardcoding specific models, it dynamically selects the "Right Model f
 pip install coreason-arbitrage
 ```
 
+## Features
+
+*   **Intelligent Routing:** Cascading model strategy to select the right model for the right task (Tier 1, Tier 2, Tier 3).
+*   **Cost Optimization:** Prevents "Token Burn" by routing simpler tasks to cheaper models and using Economy Mode.
+*   **Resiliency:** Circuit Breaker mechanism to failover to backup providers during outages.
+*   **Provider Agnosticism:** Decoupled from specific vendors, avoiding lock-in.
+*   **FinOps:** Real-time cost tracking and logging.
+
+See [Product Requirements](docs/product_requirements.md) for more details.
+
 ## Usage
 
 ```python
-import os
-from coreason_arbitrage import ArbitrageEngine
-
-# Ensure environment variables for providers are set
-# os.environ["AZURE_API_KEY"] = "..."
+from coreason_arbitrage.engine import ArbitrageEngine
 
 # Initialize the engine (Singleton)
-# Ideally, configure it with Budget and Audit clients in a production setup
+# Note: You can optionally configure it with your specific clients
 engine = ArbitrageEngine()
 
-# Get a Smart Client
-# This client mimics the OpenAI Python client interface
-client = engine.get_client(capability="reasoning")
+# Get a smart client capable of handling the request
+# This client mimics the OpenAI interface but routes intelligently
+client = engine.get_client()
 
-# Make a request
-# The 'model' parameter is handled by the Router based on the prompt
+# Use the client to create a completion
 response = client.chat.completions.create(
-    messages=[
-        {"role": "user", "content": "Analyze the attached clinical protocol for adverse events."}
-    ],
-    user="user_123"
+    messages=[{"role": "user", "content": "Explain quantum computing in simple terms."}],
+    # Arbitrage routing happens automatically based on content analysis
 )
 
 print(response.choices[0].message.content)
 ```
-
-## Configuration
-
-The `ArbitrageEngine` can be configured with external dependencies for full functionality:
-
-```python
-from coreason_arbitrage.interfaces import BudgetClient, AuditClient, ModelFoundryClient
-
-class MyBudgetClient(BudgetClient):
-    ...
-
-# engine.configure(budget_client=..., audit_client=..., foundry_client=...)
-```
-
-## License
-
-This software is licensed under the **Prosperity Public License 3.0**.
-See [LICENSE](LICENSE) for more details.
