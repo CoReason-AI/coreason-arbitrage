@@ -21,6 +21,7 @@ from coreason_arbitrage.router import Router
 from coreason_arbitrage.utils.logger import logger
 
 MAX_RETRIES = 3
+RETRIABLE_ERRORS = (RateLimitError, ServiceUnavailableError, APIConnectionError)
 
 
 class CompletionsWrapper:
@@ -149,7 +150,7 @@ class CompletionsWrapper:
                 if "model_def" in locals():
                     # Only record failures for specific availability errors or if specifically requested
                     # And exclude provider from subsequent attempts in this request
-                    if isinstance(e, (RateLimitError, ServiceUnavailableError, APIConnectionError)):
+                    if isinstance(e, RETRIABLE_ERRORS):
                         self.engine.load_balancer.record_failure(model_def.provider)
                         failed_providers.add(model_def.provider)
                         logger.warning(
