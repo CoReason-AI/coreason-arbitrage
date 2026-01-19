@@ -12,5 +12,10 @@ from coreason_arbitrage.utils.logger import logger
 
 
 def hello_world() -> str:
+    """Returns a hello world message.
+
+    Returns:
+        A string containing "Hello World!".
+    """
     logger.info("Hello World!")
     return "Hello World!"
