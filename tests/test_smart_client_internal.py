@@ -58,7 +58,7 @@ def test_smart_client_retry_loop_accumulates_failures(mock_engine: ArbitrageEngi
         client.chat.completions.router.route = MagicMock(side_effect=[model_a, model_b])
 
         # Mock completion to fail for A, succeed for B
-        with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+        with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
             mock_completion.side_effect = [
                 RateLimitError("Limit Hit", model="model-a", llm_provider="provider-a"),
                 MagicMock(usage=MagicMock(prompt_tokens=10, completion_tokens=10)),
@@ -104,7 +104,7 @@ def test_smart_client_does_not_record_failure_for_bad_request(mock_engine: Arbit
         client.chat.completions.router.route = MagicMock(return_value=model_a)
 
         # Mock completion to fail with BadRequest twice, then succeed (or fail open, but we check calls)
-        with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+        with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
             mock_completion.side_effect = [
                 BadRequestError("Bad Request", model="model-a", llm_provider="provider-a"),
                 MagicMock(usage=MagicMock(prompt_tokens=10, completion_tokens=10)),

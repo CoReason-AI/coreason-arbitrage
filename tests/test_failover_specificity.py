@@ -74,7 +74,7 @@ def test_failover_specificity_transient_error(configured_engine: ArbitrageEngine
                 raise ServiceUnavailableError("Down", model=model, llm_provider="provider1")
             return mock_success
 
-        with patch("coreason_arbitrage.smart_client.completion", side_effect=side_effect) as mock_completion:
+        with patch("coreason_arbitrage.smart_client.acompletion", side_effect=side_effect) as mock_completion:
             # We force Router to pick provider1 first by explicitly excluding provider2?
             # Or we can just let Router pick. If it picks provider2 first, we don't test failover.
             # So we should exclude provider2 initially? No, we want failover.
@@ -123,7 +123,7 @@ def test_failover_specificity_client_error(configured_engine: ArbitrageEngine) -
         def side_effect(model: str, **kwargs: Any) -> Any:
             raise BadRequestError("Bad Request", model=model, llm_provider="provider1")
 
-        with patch("coreason_arbitrage.smart_client.completion", side_effect=side_effect) as mock_completion:
+        with patch("coreason_arbitrage.smart_client.acompletion", side_effect=side_effect) as mock_completion:
             with patch.object(client.chat.completions.router, "route") as mock_route:
                 m1 = configured_engine.registry.get_model("provider1/model")
                 assert m1

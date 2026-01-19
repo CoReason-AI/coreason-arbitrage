@@ -69,7 +69,7 @@ def test_cascading_failover(configured_engine: ArbitrageEngine) -> None:
     messages = [{"role": "user", "content": "hello"}]
 
     # Mock completion to fail for Azure, succeed for AWS
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
 
         def side_effect(model: str, messages: Any, **kwargs: Any) -> Any:
             if model == "azure-model":
@@ -112,7 +112,7 @@ def test_total_outage(configured_engine: ArbitrageEngine) -> None:
     client = configured_engine.get_client()
     messages = [{"role": "user", "content": "hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_completion.side_effect = ServiceUnavailableError(
             "Global Outage", model="azure-model", llm_provider="azure"
         )
@@ -146,7 +146,7 @@ def test_concurrency_stress(configured_engine: ArbitrageEngine) -> None:
     client = configured_engine.get_client()
 
     # Move patch outside threads to avoid race conditions with global module patching
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_completion.side_effect = ServiceUnavailableError(
             "Concurrency Error", model="azure-model", llm_provider="azure"
         )

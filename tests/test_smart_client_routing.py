@@ -53,7 +53,7 @@ def test_smart_client_routing_flow(configured_engine: ArbitrageEngine) -> None:
     client = configured_engine.get_client()
     messages = [{"role": "user", "content": "hello"}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_response = MagicMock()
         mock_completion.return_value = mock_response
 
@@ -112,7 +112,7 @@ def test_smart_client_routing_complexity_high(
     # "Analyze" keyword triggers high complexity
     messages = [{"role": "user", "content": "Analyze this data."}]
 
-    with patch("coreason_arbitrage.smart_client.completion") as mock_completion:
+    with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_completion.return_value = MagicMock()
 
         client.chat.completions.create(messages=messages, user="test_user")
