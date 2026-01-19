@@ -26,8 +26,10 @@ DOMAIN_MAPPINGS: Dict[str, List[str]] = {
 
 
 def _compile_domain_patterns() -> Dict[str, re.Pattern[str]]:
-    """
-    Compiles regex patterns for each domain using word boundaries.
+    """Compiles regex patterns for each domain using word boundaries.
+
+    Returns:
+        A dictionary mapping domain names to compiled regex patterns.
     """
     patterns = {}
     for domain, keywords in DOMAIN_MAPPINGS.items():
@@ -48,25 +50,32 @@ DOMAIN_PATTERNS = _compile_domain_patterns()
 
 
 class Gatekeeper:
-    """
-    The Gatekeeper analyzes the complexity of a prompt to determine routing.
-    It uses a lightweight heuristic approach to avoid adding latency.
+    """The Gatekeeper analyzes the complexity of a prompt to determine routing.
+
+    It uses a lightweight heuristic approach to avoid adding latency, relying on
+    RegEx and length heuristics rather than secondary LLM calls.
     """
 
     def classify(self, text: str) -> RoutingContext:
-        """
-        Analyzes the input text and returns a RoutingContext with a complexity score
-        and an optional domain.
+        """Analyzes the input text and returns a RoutingContext.
+
+        Determines complexity score and optional domain based on the text content.
 
         Heuristics:
-        - Complexity 0.9 (High) if:
-            - Length > 2000 characters
-            - Contains keywords: 'Analyze', 'Critique', 'Reason' (whole words only)
-        - Complexity 0.1 (Low) otherwise.
+            - Complexity 0.9 (High) if:
+                - Length > 2000 characters
+                - Contains keywords: 'Analyze', 'Critique', 'Reason' (whole words only)
+            - Complexity 0.1 (Low) otherwise.
 
         Domain Extraction:
-        - Scans for keywords defined in DOMAIN_MAPPINGS.
-        - Returns the first matching domain.
+            - Scans for keywords defined in DOMAIN_MAPPINGS.
+            - Returns the first matching domain.
+
+        Args:
+            text: The input prompt text.
+
+        Returns:
+            RoutingContext: An object containing the complexity score and detected domain.
         """
         # Complexity Check
         is_long = len(text) > COMPLEXITY_THRESHOLD_LENGTH

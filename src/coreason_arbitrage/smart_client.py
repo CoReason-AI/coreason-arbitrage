@@ -25,8 +25,9 @@ RETRIABLE_ERRORS = (RateLimitError, ServiceUnavailableError, APIConnectionError)
 
 
 class CompletionsWrapper:
-    """
-    Proxy for chat.completions.
+    """Proxy for chat.completions.
+
+    Handles the core logic of classification, routing, execution, and failover.
     """
 
     def __init__(self, engine: ArbitrageEngine, gatekeeper: Gatekeeper) -> None:
@@ -45,8 +46,29 @@ class CompletionsWrapper:
         )
 
     def create(self, messages: List[Dict[str, str]], **kwargs: Any) -> Any:
-        """
-        Orchestrates the Classify-Route-Execute loop.
+        """Orchestrates the Classify-Route-Execute loop.
+
+        This method performs the following steps:
+        1. Checks User Budget.
+        2. Classifies the prompt (Gatekeeper).
+        3. Routes to the optimal model (Router).
+        4. Executes the request via `litellm`.
+        5. Logs the transaction and deducts funds.
+
+        It implements retry logic with provider exclusion and Fail-Open behavior.
+
+        Args:
+            messages: A list of message dictionaries (role, content).
+            **kwargs: Additional arguments passed to `litellm.completion`.
+                Note: The `model` argument is determined by the Router and should
+                generally not be passed by the user, or it will be ignored/overwritten.
+
+        Returns:
+            The response object from the LLM provider.
+
+        Raises:
+            PermissionError: If budget check fails or funds are insufficient.
+            RuntimeError: If routing fails or Fail-Open also fails.
         """
         user_id = kwargs.get("user", "default_user")
 
@@ -235,17 +257,17 @@ class CompletionsWrapper:
 
 
 class ChatWrapper:
-    """
-    Proxy for chat namespace.
-    """
+    """Proxy for chat namespace."""
 
     def __init__(self, engine: ArbitrageEngine) -> None:
         self.completions = CompletionsWrapper(engine, Gatekeeper())
 
 
 class SmartClient:
-    """
-    SmartClient proxy class mimicking OpenAI client interface.
+    """SmartClient proxy class mimicking OpenAI client interface.
+
+    This client provides an interface compatible with standard OpenAI libraries
+    while abstracting away the underlying provider selection and failover logic.
     """
 
     def __init__(self, engine: ArbitrageEngine) -> None:

@@ -22,11 +22,11 @@ COOLDOWN_PERIOD_SECONDS = 300
 
 
 class LoadBalancer:
-    """
-    Manages provider health states.
-    Implements a Circuit Breaker pattern:
-    - Tracks failures within a rolling window (1 minute).
-    - If failures > threshold (3), marks provider as unhealthy for a cooldown period (5 minutes).
+    """Manages provider health states using a Circuit Breaker pattern.
+
+    This class tracks failures within a rolling window (1 minute).
+    If failures exceed the threshold (3), the provider is marked as unhealthy
+    for a cooldown period (5 minutes).
     """
 
     def __init__(self) -> None:
@@ -37,9 +37,12 @@ class LoadBalancer:
         self._cooldown_until: Dict[str, float] = {}
 
     def record_failure(self, provider: str) -> None:
-        """
-        Records a failure for a specific provider.
-        Triggers cooldown if threshold is exceeded.
+        """Records a failure for a specific provider.
+
+        Triggers cooldown if the failure threshold is exceeded within the window.
+
+        Args:
+            provider: The name of the provider (e.g., "azure").
         """
         with self._lock:
             now = time.time()
@@ -63,14 +66,12 @@ class LoadBalancer:
                 logger.error(f"Provider {provider} exceeded failure threshold. Marked unhealthy until {cooldown_end}")
 
     def record_success(self, provider: str) -> None:
-        """
-        Records a success.
-        If a provider was unhealthy (and we are technically testing it), this could reset it.
-        For this implementation: A success clears the failure history for the window,
-        essentially resetting the circuit breaker if it was closed or half-open.
-        However, if it's strictly in cooldown, we might not see successes unless we allow "probing".
+        """Records a success for a specific provider.
 
-        Assumption: If a call succeeds, the provider is healthy.
+        Clears the failure history for the provider, resetting the circuit breaker.
+
+        Args:
+            provider: The name of the provider (e.g., "azure").
         """
         with self._lock:
             if provider in self._failures:
@@ -81,8 +82,13 @@ class LoadBalancer:
                 logger.info(f"Provider {provider} recovered and marked healthy.")
 
     def is_provider_healthy(self, provider: str) -> bool:
-        """
-        Checks if the provider is currently healthy (not in cooldown).
+        """Checks if the provider is currently healthy (not in cooldown).
+
+        Args:
+            provider: The name of the provider to check.
+
+        Returns:
+            True if the provider is healthy or cooldown has expired, False otherwise.
         """
         with self._lock:
             now = time.time()

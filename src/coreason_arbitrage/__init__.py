@@ -8,8 +8,9 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
-"""
-coreason-arbitrage
+"""Coreason Arbitrage Package.
+
+Intelligent routing layer for LLMs, optimizing for cost, performance, and reliability.
 """
 
 __version__ = "0.1.0"

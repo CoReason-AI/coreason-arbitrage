@@ -18,9 +18,10 @@ from coreason_arbitrage.utils.logger import logger
 
 
 class Router:
-    """
-    The Router determines the best model to use based on the routing context,
-    user budget, and available models in the registry.
+    """The Router determines the best model to use based on context, budget, and health.
+
+    It executes the core logic of selecting the optimal model by evaluating
+    complexity, domain specificity, economy mode, and provider health.
     """
 
     def __init__(
@@ -39,27 +40,28 @@ class Router:
         user_id: str,
         excluded_providers: Optional[List[str]] = None,
     ) -> ModelDefinition:
-        """
-        Selects the optimal model for the given context and user.
+        """Selects the optimal model for the given context and user.
 
         Logic:
-        0. Exclusion Filtering:
-           - Remove models where provider is in `excluded_providers`.
-        1. Determine Baseline Tier:
-           - Tier 3: Complexity >= 0.8 OR Domain == 'safety_critical'
-           - Tier 2: 0.4 <= Complexity < 0.8
-           - Tier 1: Complexity < 0.4
-        2. Apply Economy Mode:
-           - If user budget < 10% (0.1) AND Tier is Tier 2, downgrade to Tier 1.
-        3. Domain Priority Check:
-           - If domain matches, look for a healthy domain model.
-           - Prefer one that matches the Target Tier.
-           - Fallback to any healthy domain model if Target Tier not available.
-        4. Select Generic Model:
-           - Query Registry for the target Tier.
-           - Filter by provider health (LoadBalancer).
-           - Return the first healthy model.
-           - If no model found in target Tier, raise Error.
+        1. Determine Baseline Tier based on complexity and safety criticality.
+        2. Apply Economy Mode (downgrade Tier 2 to Tier 1 if budget < 10%).
+        3. Check for Domain Priority matches (specialized models).
+        4. Select Generic Model from Registry within the target Tier.
+
+        All selections are filtered by:
+        - `excluded_providers`: Explicit exclusions (e.g., failed providers in current request).
+        - `LoadBalancer`: Dynamic health checks.
+
+        Args:
+            context: The routing context containing complexity and domain.
+            user_id: The ID of the user (for budget checks).
+            excluded_providers: Optional list of provider names to exclude.
+
+        Returns:
+            ModelDefinition: The selected model configuration.
+
+        Raises:
+            RuntimeError: If no healthy models are available for the target requirements.
         """
         # 1. Determine Baseline Tier
         target_tier: ModelTier
