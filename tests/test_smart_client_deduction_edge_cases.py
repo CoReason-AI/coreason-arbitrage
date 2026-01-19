@@ -8,6 +8,7 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
+from typing import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -37,11 +38,9 @@ def mock_gatekeeper() -> MagicMock:
 
 
 @pytest.fixture
-def smart_client(mock_engine: MagicMock, mock_gatekeeper: MagicMock) -> SmartClient:
+def smart_client(mock_engine: MagicMock, mock_gatekeeper: MagicMock) -> Generator[SmartClient, None, None]:
     with patch("coreason_arbitrage.smart_client.Gatekeeper", return_value=mock_gatekeeper):
         client = SmartClient(mock_engine)
-        client.chat.completions._async.engine = mock_engine
-        client.chat.completions._async.gatekeeper = mock_gatekeeper
 
         mock_router = MagicMock()
         mock_model = ModelDefinition(
@@ -55,7 +54,7 @@ def smart_client(mock_engine: MagicMock, mock_gatekeeper: MagicMock) -> SmartCli
         mock_router.route.return_value = mock_model
         client.chat.completions.router = mock_router
 
-        return client
+        yield client
 
 
 def test_audit_failure_does_not_block_deduction(smart_client: SmartClient, mock_engine: MagicMock) -> None:

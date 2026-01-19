@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Set
 
 import anyio
 import httpx
+from anyio.from_thread import start_blocking_portal
 from litellm import acompletion
 from litellm.exceptions import APIConnectionError, RateLimitError, ServiceUnavailableError
 
@@ -242,50 +243,111 @@ class SmartClientAsync:
 class CompletionsWrapper:
     """Sync Facade for chat.completions."""
 
-    def __init__(self, async_wrapper: CompletionsWrapperAsync) -> None:
-        self._async = async_wrapper
+    def __init__(self, client: "SmartClient") -> None:
+        self._client = client
 
     @property
     def router(self) -> Router:
         """Exposes the underlying router."""
-        return self._async.router
+        # If we have an async instance (Context Manager), use its router
+        if self._client._async_instance:
+            return self._client._async_instance.chat.completions.router
+        # Fallback for legacy/non-context usage: Use client's fallback router
+        return self._client._router_fallback
 
     @router.setter
     def router(self, value: Router) -> None:
-        self._async.router = value
+        if self._client._async_instance:
+            self._client._async_instance.chat.completions.router = value
+        else:
+            self._client._router_fallback = value
 
     def create(self, messages: List[Dict[str, str]], **kwargs: Any) -> Any:
         """Synchronous wrapper for create."""
-
-        async def _wrapper() -> Any:
-            return await self._async.create(messages, **kwargs)
-
-        return anyio.run(_wrapper)
+        return self._client._create_completion_sync(messages, **kwargs)
 
 
 class ChatWrapper:
     """Sync Facade for chat namespace."""
 
-    def __init__(self, async_wrapper: ChatWrapperAsync) -> None:
-        self.completions = CompletionsWrapper(async_wrapper.completions)
+    def __init__(self, client: "SmartClient") -> None:
+        self.completions = CompletionsWrapper(client)
 
 
 class SmartClient:
     """Sync Facade for SmartClientAsync.
 
     Provides a blocking interface compatible with legacy code.
+    Supports usage as a Context Manager for connection pooling.
     """
 
     def __init__(self, engine: ArbitrageEngine) -> None:
-        self._async = SmartClientAsync(engine)
-        self.chat = ChatWrapper(self._async.chat)
+        self.engine = engine
+        self.chat = ChatWrapper(self)
+
+        # State for Context Manager usage
+        self._portal_ctx: Any = None
+        self._portal: Any = None
+        self._async_instance: Optional[SmartClientAsync] = None
+
+        # Router for fallback usage (legacy tests)
+        if self.engine.budget_client is None:
+            logger.warning("ArbitrageEngine not configured with BudgetClient. Router might fail.")
+        self._router_fallback = Router(
+            self.engine.registry,
+            self.engine.budget_client,  # type: ignore
+            self.engine.load_balancer,
+        )
+
+    def _create_completion_sync(self, messages: List[Dict[str, str]], **kwargs: Any) -> Any:
+        if self._portal and self._async_instance:
+            # Use persistent portal and client (Pooling)
+            return self._portal.call(self._async_instance.chat.completions.create, messages, **kwargs)
+        else:
+            # Fallback: One-off Loop (Safe, no pooling)
+            async def _one_off() -> Any:
+                async with SmartClientAsync(self.engine) as svc:
+                    # Sync router fallback state if modified in legacy tests?
+                    # Tests verify setting client.chat.completions.router
+                    # If user set _router_fallback, we should probably use it?
+                    # SmartClientAsync creates its own Router.
+                    # We can inject _router_fallback into svc if needed.
+                    # svc.chat.completions.router = self._router_fallback
+                    # This ensures mocks on router work.
+                    svc.chat.completions.router = self._router_fallback
+                    return await svc.chat.completions.create(messages, **kwargs)
+
+            return anyio.run(_one_off)
 
     def __enter__(self) -> "SmartClient":
+        self._portal_ctx = start_blocking_portal()
+        self._portal = self._portal_ctx.__enter__()
+
+        # Instantiate Async Client inside the portal logic?
+        # Actually we can instantiate it here, but httpx client MUST NOT be used until inside loop.
+        # SmartClientAsync creates httpx.AsyncClient(). It is not bound until request.
+        self._async_instance = SmartClientAsync(self.engine)
+
+        # We should probably run __aenter__ of SmartClientAsync?
+        # Yes, to be proper.
+        self._portal.call(self._async_instance.__aenter__)
+
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        anyio.run(self._async.__aexit__, exc_type, exc_val, exc_tb)
+        try:
+            if self._async_instance:
+                self._portal.call(self._async_instance.__aexit__, exc_type, exc_val, exc_tb)
+        finally:
+            if self._portal_ctx:
+                self._portal_ctx.__exit__(exc_type, exc_val, exc_tb)
+            self._portal = None
+            self._async_instance = None
 
     def close(self) -> None:
         """Closes the underlying resources."""
-        anyio.run(self._async.close)
+        if self._portal and self._async_instance:
+            self._portal.call(self._async_instance.close)
+        elif self._portal is None:
+            # If not in context, nothing to close (one-offs clean themselves up)
+            pass
