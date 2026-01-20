@@ -8,6 +8,6 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
-"""
-Utils module.
-"""
+from loguru import logger
+
+__all__ = ["logger"]

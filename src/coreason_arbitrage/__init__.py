@@ -8,14 +8,17 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
-"""
-coreason-arbitrage
+"""Coreason Arbitrage Package.
+
+Intelligent routing layer for LLMs, optimizing for cost, performance, and reliability.
 """
 
 __version__ = "0.1.0"
 __author__ = "Gowtham A Rao"
 __email__ = "gowtham.rao@coreason.ai"
 
+from .engine import ArbitrageEngine
 from .main import hello_world
+from .smart_client import SmartClient, SmartClientAsync
 
-__all__ = ["hello_world"]
+__all__ = ["ArbitrageEngine", "SmartClient", "SmartClientAsync", "hello_world"]
