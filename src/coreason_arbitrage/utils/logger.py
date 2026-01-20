@@ -17,6 +17,12 @@ from loguru import logger as _logger
 _logger.remove()
 
 logger = _logger
+"""The global logger instance configured for the application.
+
+This logger is configured to output:
+- Human-readable logs to stderr (INFO level and above).
+- JSON formatted logs to `logs/app.log` with rotation and retention policies.
+"""
 
 # Sink 1: Stdout (Human-readable)
 logger.add(
