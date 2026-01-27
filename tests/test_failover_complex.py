@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from coreason_identity.models import UserContext
 from litellm.exceptions import BadRequestError, ServiceUnavailableError
 
 from coreason_arbitrage.engine import ArbitrageEngine
@@ -56,6 +57,10 @@ def test_total_meltdown_fail_open(complex_engine: ArbitrageEngine) -> None:
     """
     client = complex_engine.get_client()
 
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "user1"
+    uc.groups = []
+
     # Spy on LB
     with patch.object(complex_engine.load_balancer, "record_failure") as mock_lb_record:
         # Mock completion to always raise ServiceUnavailable
@@ -73,7 +78,7 @@ def test_total_meltdown_fail_open(complex_engine: ArbitrageEngine) -> None:
             messages = [{"role": "user", "content": "Analyze."}]
 
             # We expect a success eventually (Fail Open Success) or return of the mock
-            response = client.chat.completions.create(messages=messages)
+            response = client.chat.completions.create(messages=messages, user_context=uc)
 
             # Assert response is valid (Fail Open worked)
             assert response is not None
@@ -105,6 +110,10 @@ def test_mixed_failure_types(complex_engine: ArbitrageEngine) -> None:
     - Attempt 3: Provider 2 (BadRequest) -> Loops on same?
     """
     client = complex_engine.get_client()
+
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "user1"
+    uc.groups = []
 
     with patch.object(complex_engine.load_balancer, "record_failure") as mock_lb_record:
         # We need to control the sequence of errors based on the model selected.
@@ -139,7 +148,7 @@ def test_mixed_failure_types(complex_engine: ArbitrageEngine) -> None:
                 # Fail Open calls "azure/gpt-4o". This succeeds (returns MagicMock).
 
                 # So response will be the fallback success.
-                response = client.chat.completions.create(messages=messages)
+                response = client.chat.completions.create(messages=messages, user_context=uc)
                 assert response is not None
 
                 # Check LB Record: Should only record P1

@@ -11,6 +11,7 @@
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from coreason_identity.models import UserContext
 from litellm.exceptions import ServiceUnavailableError
 
 from coreason_arbitrage.engine import ArbitrageEngine
@@ -93,6 +94,10 @@ def test_request_scoped_failover() -> None:
     engine.registry.register_model(aws_model)  # AWS added second
     # Note: Python dicts preserve insertion order in 3.7+, so listing models should yield Azure first.
 
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "user1"
+    uc.groups = []
+
     with patch("coreason_arbitrage.smart_client.acompletion", side_effect=side_effect) as mock_completion:
         # Run
         # Prompt "Analyze" triggers Tier 3
@@ -103,7 +108,7 @@ def test_request_scoped_failover() -> None:
         # This test will likely fail with "ServiceUnavailableError" or infinite loop on Azure
         # (if retry logic just retries Azure 3 times).
 
-        response = client.chat.completions.create(messages=messages)
+        response = client.chat.completions.create(messages=messages, user_context=uc)
 
         # Assertions
         assert response == mock_response
