@@ -82,7 +82,8 @@ def user_context() -> UserContext:
     # However, type hinting expects UserContext.
     # Let's try to create a real one if possible, or Mock.
     # Given I can't see the UserContext definition, I'll use a Mock for the fixture to be safe,
-    # but I'll make sure it passes isinstance check if needed (it's not checked with isinstance in code, just type hint).
+    # but I'll make sure it passes isinstance check if needed (it's not checked with isinstance
+    # in code, just type hint).
     uc = Mock(spec=UserContext)
     uc.user_id = "user1"
     uc.groups = ["users"]
@@ -302,6 +303,7 @@ def test_economy_downgrade_dead_end(router: Router, mock_budget_client: Mock, mo
 
 # --- New Tests for Identity & VIP ---
 
+
 def test_missing_user_context_enforces_economy(router: Router, mock_budget_client: Mock) -> None:
     """Test that missing user_context forces Tier 1 (Economy Mode) and skips budget check."""
     # Would be Tier 2 based on complexity
@@ -321,7 +323,10 @@ def test_vip_user_skips_economy_check(router: Router, mock_budget_client: Mock) 
 
     uc = Mock(spec=UserContext)
     uc.user_id = "vip_user"
-    uc.groups = ["staff", "Executives"]  # Case sensitive check in code was implemented as insensitive? I should check code.
+    uc.groups = [
+        "staff",
+        "Executives",
+    ]  # Case sensitive check in code was implemented as insensitive? I should check code.
     # My implementation: any(group.lower() == "executives" for group in user_context.groups)
 
     # Would be Tier 2
@@ -333,6 +338,7 @@ def test_vip_user_skips_economy_check(router: Router, mock_budget_client: Mock) 
     assert model.tier == ModelTier.TIER_2_SMART
     # Budget check should be skipped
     mock_budget_client.get_remaining_budget_percentage.assert_not_called()
+
 
 def test_vip_user_case_insensitive(router: Router, mock_budget_client: Mock) -> None:
     """Test that VIP check is case insensitive."""

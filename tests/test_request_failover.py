@@ -11,7 +11,6 @@
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 from coreason_identity.models import UserContext
 from litellm.exceptions import ServiceUnavailableError
 

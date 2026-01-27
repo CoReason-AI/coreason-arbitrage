@@ -104,7 +104,9 @@ def test_smart_client_gatekeeper_logic_called() -> None:
             user_context.groups = []
 
             with patch("coreason_arbitrage.smart_client.acompletion"):
-                client.chat.completions.create(messages=[{"role": "user", "content": "test"}], user_context=user_context)
+                client.chat.completions.create(
+                    messages=[{"role": "user", "content": "test"}], user_context=user_context
+                )
 
             instance.classify.assert_called_once_with("test")
 

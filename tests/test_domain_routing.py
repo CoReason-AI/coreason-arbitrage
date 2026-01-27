@@ -111,7 +111,9 @@ def test_route_fallback_if_domain_model_not_found(router: Router, user_context: 
     assert model.tier == ModelTier.TIER_1_FAST
 
 
-def test_route_fallback_if_domain_model_unhealthy(router: Router, mock_registry: Mock, user_context: UserContext) -> None:
+def test_route_fallback_if_domain_model_unhealthy(
+    router: Router, mock_registry: Mock, user_context: UserContext
+) -> None:
     """
     Test that if the domain model is unhealthy, it falls back to standard routing.
     """
@@ -148,7 +150,9 @@ def test_route_fallback_if_domain_model_unhealthy(router: Router, mock_registry:
     assert model.id == "tier1-model"
 
 
-def test_route_safety_critical_overrides_complexity_but_checked_after_domain_priority(router: Router, user_context: UserContext) -> None:
+def test_route_safety_critical_overrides_complexity_but_checked_after_domain_priority(
+    router: Router, user_context: UserContext
+) -> None:
     """
     If domain is 'safety_critical', it triggers Tier 3 in standard logic.
     But if there was a specific model for 'safety_critical' domain registered,

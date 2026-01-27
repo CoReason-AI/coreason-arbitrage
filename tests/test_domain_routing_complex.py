@@ -131,12 +131,14 @@ def test_domain_model_fallback_if_tier_mismatch(router: Router, user_context: Us
     assert model.id == "medical-t1"
 
 
-def test_domain_model_respects_economy_mode(router: Router, mock_budget_client: Mock, user_context: UserContext) -> None:
+def test_domain_model_respects_economy_mode(
+    router: Router, mock_budget_client: Mock, user_context: UserContext
+) -> None:
     """
     Test that Economy Mode downgrades the target tier, and then we look for a domain model matching that NEW tier.
     """
     mock_budget_client.get_remaining_budget_percentage.return_value = 0.05  # Broke
-    user_context.groups = [] # Ensure not VIP
+    user_context.groups = []  # Ensure not VIP
 
     context = RoutingContext(complexity=0.5, domain="medical")
     model = router.route(context, user_context=user_context)
