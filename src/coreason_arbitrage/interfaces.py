@@ -10,6 +10,8 @@
 
 from typing import List, Optional, Protocol, runtime_checkable
 
+from coreason_identity.models import UserContext
+
 from coreason_arbitrage.models import ModelDefinition
 
 
@@ -28,13 +30,13 @@ class BudgetClient(Protocol):
         """
         ...
 
-    def get_remaining_budget_percentage(self, user_id: str) -> float:
+    def get_remaining_budget_percentage(self, user_context: UserContext) -> float:
         """Returns the user's remaining budget as a percentage (0.0 to 1.0).
 
         Used for "Economy Mode" decisions.
 
         Args:
-            user_id: The ID of the user.
+            user_context: The verified user context.
 
         Returns:
             A float representing the remaining budget percentage (e.g., 0.15 for 15%).
