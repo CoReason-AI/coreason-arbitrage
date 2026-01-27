@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Set
 import anyio
 import httpx
 from anyio.from_thread import start_blocking_portal
+from coreason_identity.models import UserContext
 from litellm import acompletion
 from litellm.exceptions import APIConnectionError, RateLimitError, ServiceUnavailableError
 
@@ -53,11 +54,17 @@ class CompletionsWrapperAsync:
             self.engine.load_balancer,
         )
 
-    async def create(self, messages: List[Dict[str, str]], **kwargs: Any) -> Any:
+    async def create(
+        self,
+        messages: List[Dict[str, str]],
+        user_context: Optional[UserContext] = None,
+        **kwargs: Any,
+    ) -> Any:
         """Orchestrates the Classify-Route-Execute loop asynchronously.
 
         Args:
             messages: A list of message dictionaries (role, content).
+            user_context: The authenticated user context.
             **kwargs: Additional arguments passed to `litellm.acompletion`.
 
         Returns:
@@ -67,7 +74,15 @@ class CompletionsWrapperAsync:
             PermissionError: If budget check fails or funds are insufficient.
             RuntimeError: If routing fails or Fail-Open also fails.
         """
-        user_id = kwargs.get("user", "default_user")
+        # Determine User ID for accounting/logging
+        if user_context:
+            user_id = user_context.user_id
+        else:
+            # Legacy fallback: check kwargs for 'user'
+            user_id = kwargs.get("user", "default_user")
+            if "user" in kwargs:
+                # If 'user' was passed but no context, we rely on Router's fail safe
+                pass
 
         # 0. Budget Check (Pre-flight)
         if self.engine.budget_client:
@@ -105,7 +120,9 @@ class CompletionsWrapperAsync:
             try:
                 # 3. Routing (Inside loop to pick up new healthy models)
                 model_def: ModelDefinition = self.router.route(
-                    routing_context, user_id, excluded_providers=list(failed_providers)
+                    routing_context,
+                    user_context=user_context,
+                    excluded_providers=list(failed_providers),
                 )
                 logger.info(f"Selected model (Attempt {attempt + 1}): {model_def.id} ({model_def.provider})")
 

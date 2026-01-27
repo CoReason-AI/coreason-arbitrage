@@ -10,6 +10,8 @@
 
 from unittest.mock import MagicMock, patch
 
+from coreason_identity.models import UserContext
+
 from coreason_arbitrage.engine import ArbitrageEngine
 from coreason_arbitrage.interfaces import BudgetClient
 from coreason_arbitrage.models import ModelDefinition, ModelTier
@@ -58,9 +60,14 @@ def test_smart_client_gatekeeper_integration() -> None:
 
     messages = [{"role": "user", "content": "Analyze this protocol."}]
 
+    # Create a mock user context to allow Tier 3 access
+    user_context = MagicMock(spec=UserContext)
+    user_context.user_id = "test_user"
+    user_context.groups = ["users"]
+
     with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_completion.return_value = MagicMock()
-        client.chat.completions.create(messages=messages)
+        client.chat.completions.create(messages=messages, user_context=user_context)
         mock_completion.assert_called_once()
 
 
@@ -91,8 +98,15 @@ def test_smart_client_gatekeeper_logic_called() -> None:
 
             client = engine.get_client()
 
+            # Use user_context to avoid forced economy mode (although Tier 1 is fine here)
+            user_context = MagicMock(spec=UserContext)
+            user_context.user_id = "u1"
+            user_context.groups = []
+
             with patch("coreason_arbitrage.smart_client.acompletion"):
-                client.chat.completions.create(messages=[{"role": "user", "content": "test"}])
+                client.chat.completions.create(
+                    messages=[{"role": "user", "content": "test"}], user_context=user_context
+                )
 
             instance.classify.assert_called_once_with("test")
 
@@ -155,11 +169,15 @@ def test_smart_client_audit_logging_failure() -> None:
 
     client = engine.get_client()
 
+    user_context = MagicMock(spec=UserContext)
+    user_context.user_id = "hi"
+    user_context.groups = []
+
     with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_completion.return_value = MagicMock()
 
         with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
-            client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
+            client.chat.completions.create(messages=[{"role": "user", "content": "hi"}], user_context=user_context)
             # Should log error but not fail request
             mock_logger.error.assert_called_with("Audit logging failed: Audit Log Error")
 
@@ -178,12 +196,16 @@ def test_smart_client_routing_failure_fails_open() -> None:
     # Do NOT register any models -> routing will fail
     client = engine.get_client()
 
+    user_context = MagicMock(spec=UserContext)
+    user_context.user_id = "hi"
+    user_context.groups = []
+
     with patch("coreason_arbitrage.smart_client.logger") as mock_logger:
         # Should NOT raise RuntimeError anymore, but return a response (mocked)
         with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
             mock_completion.return_value = MagicMock()
 
-            client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
+            client.chat.completions.create(messages=[{"role": "user", "content": "hi"}], user_context=user_context)
 
             # Verify fail open warning
             found_critical = False
@@ -209,10 +231,14 @@ def test_smart_client_zero_retries_fail_open() -> None:
 
     client = engine.get_client()
 
+    user_context = MagicMock(spec=UserContext)
+    user_context.user_id = "hi"
+    user_context.groups = []
+
     with patch("coreason_arbitrage.smart_client.MAX_RETRIES", 0):
         with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
             mock_completion.return_value = MagicMock()
 
-            client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
+            client.chat.completions.create(messages=[{"role": "user", "content": "hi"}], user_context=user_context)
 
             mock_completion.assert_called_with(model="azure/gpt-4o", messages=[{"role": "user", "content": "hi"}])

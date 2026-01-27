@@ -11,6 +11,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from coreason_identity.models import UserContext
 
 from coreason_arbitrage.engine import ArbitrageEngine
 from coreason_arbitrage.interfaces import AuditClient, BudgetClient
@@ -53,11 +54,15 @@ def test_smart_client_routing_flow(configured_engine: ArbitrageEngine) -> None:
     client = configured_engine.get_client()
     messages = [{"role": "user", "content": "hello"}]
 
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "test_user"
+    uc.groups = []
+
     with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_response = MagicMock()
         mock_completion.return_value = mock_response
 
-        client.chat.completions.create(messages=messages, user="test_user")
+        client.chat.completions.create(messages=messages, user_context=uc)
 
         # We can't check response["model"] easily because completion returns a mock object now,
         # unless we mock the return value's structure or check the call args.
@@ -79,8 +84,12 @@ def test_smart_client_budget_denial(configured_engine: ArbitrageEngine) -> None:
     client = configured_engine.get_client()
     messages = [{"role": "user", "content": "hello"}]
 
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "test_user"
+    uc.groups = []
+
     with pytest.raises(PermissionError, match="Budget exceeded"):
-        client.chat.completions.create(messages=messages, user="test_user")
+        client.chat.completions.create(messages=messages, user_context=uc)
 
 
 def test_smart_client_budget_fail_closed(configured_engine: ArbitrageEngine) -> None:
@@ -91,8 +100,12 @@ def test_smart_client_budget_fail_closed(configured_engine: ArbitrageEngine) -> 
     client = configured_engine.get_client()
     messages = [{"role": "user", "content": "hello"}]
 
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "test_user"
+    uc.groups = []
+
     with pytest.raises(PermissionError, match="Budget check failed"):
-        client.chat.completions.create(messages=messages, user="test_user")
+        client.chat.completions.create(messages=messages, user_context=uc)
 
 
 def test_smart_client_routing_complexity_high(
@@ -112,10 +125,14 @@ def test_smart_client_routing_complexity_high(
     # "Analyze" keyword triggers high complexity
     messages = [{"role": "user", "content": "Analyze this data."}]
 
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "test_user"
+    uc.groups = []
+
     with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         mock_completion.return_value = MagicMock()
 
-        client.chat.completions.create(messages=messages, user="test_user")
+        client.chat.completions.create(messages=messages, user_context=uc)
 
         mock_completion.assert_called_once()
         assert mock_completion.call_args.kwargs["model"] == "high-model"

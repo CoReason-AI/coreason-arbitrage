@@ -10,6 +10,8 @@
 
 from typing import List, Optional
 
+from coreason_identity.models import UserContext
+
 from coreason_arbitrage.interfaces import BudgetClient
 from coreason_arbitrage.load_balancer import LoadBalancer
 from coreason_arbitrage.models import ModelDefinition, ModelTier, RoutingContext
@@ -37,14 +39,17 @@ class Router:
     def route(
         self,
         context: RoutingContext,
-        user_id: str,
+        user_context: Optional[UserContext] = None,
         excluded_providers: Optional[List[str]] = None,
     ) -> ModelDefinition:
         """Selects the optimal model for the given context and user.
 
         Logic:
         1. Determine Baseline Tier based on complexity and safety criticality.
-        2. Apply Economy Mode (downgrade Tier 2 to Tier 1 if budget < 10%).
+        2. Verify Identity and Apply Economy Mode:
+           - If user_context is missing, force Economy Mode (Tier 1).
+           - If VIP (Executives), skip Economy Mode check.
+           - Otherwise, check budget (downgrade Tier 2 to Tier 1 if budget < 10%).
         3. Check for Domain Priority matches (specialized models).
         4. Select Generic Model from Registry within the target Tier.
 
@@ -54,7 +59,7 @@ class Router:
 
         Args:
             context: The routing context containing complexity and domain.
-            user_id: The ID of the user (for budget checks).
+            user_context: The authenticated user context.
             excluded_providers: Optional list of provider names to exclude.
 
         Returns:
@@ -80,17 +85,36 @@ class Router:
             f"Baseline Tier selection: {target_tier} (Complexity: {context.complexity}, Domain: {context.domain})"
         )
 
-        # 2. Economy Mode Check
-        try:
-            remaining_budget_pct = self.budget_client.get_remaining_budget_percentage(user_id)
-            if remaining_budget_pct < 0.10:
-                logger.info(f"Economy Mode triggered for user {user_id} (Budget: {remaining_budget_pct:.2%})")
-                if target_tier == ModelTier.TIER_2_SMART:
-                    logger.info("Downgrading from Tier 2 to Tier 1 due to Economy Mode")
-                    target_tier = ModelTier.TIER_1_FAST
-        except Exception as e:
-            # Fail Open: If budget check fails, proceed with baseline choice but log error
-            logger.error(f"Failed to check budget for user {user_id}: {e}")
+        # 2. Economy Mode / Identity Check
+        if user_context is None:
+            logger.warning("User context missing. Enforcing Economy Mode (Tier 1).")
+            # Force downgrade to Tier 1 unless it's Tier 1 already.
+            # Actually, constraint says "Force Economy Mode (Tier 1 models only)".
+            # Does this mean I should downgrade even Tier 3?
+            # "Tier selection, Economy Mode... Force Economy Mode (Tier 1 models only)".
+            # Yes, "Tier 1 models only" implies stricter than standard Economy Mode (which downgrades T2->T1).
+            # If I force Tier 1, I ensure safety.
+            target_tier = ModelTier.TIER_1_FAST
+        else:
+            user_id = user_context.user_id
+
+            # Check VIP Status
+            # Case insensitive check for "Executives"
+            is_vip = any(group.lower() == "executives" for group in user_context.groups)
+
+            if is_vip:
+                logger.info(f"VIP User detected ({user_id}). Skipping Economy Mode check.")
+            else:
+                try:
+                    remaining_budget_pct = self.budget_client.get_remaining_budget_percentage(user_context)
+                    if remaining_budget_pct < 0.10:
+                        logger.info(f"Economy Mode triggered for user {user_id} (Budget: {remaining_budget_pct:.2%})")
+                        if target_tier == ModelTier.TIER_2_SMART:
+                            logger.info("Downgrading from Tier 2 to Tier 1 due to Economy Mode")
+                            target_tier = ModelTier.TIER_1_FAST
+                except Exception as e:
+                    # Fail Open: If budget check fails, proceed with baseline choice but log error
+                    logger.error(f"Failed to check budget for user {user_id}: {e}")
 
         # 3. Domain Priority Check
         if context.domain:

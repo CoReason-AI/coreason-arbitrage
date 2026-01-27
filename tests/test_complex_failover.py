@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from coreason_identity.models import UserContext
 from litellm.exceptions import BadRequestError, ServiceUnavailableError
 
 from coreason_arbitrage.engine import ArbitrageEngine
@@ -74,13 +75,17 @@ def test_domain_to_generic_fallback() -> None:
         else:
             raise ValueError(f"Unknown model: {model}")
 
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "user1"
+    uc.groups = []
+
     with patch("coreason_arbitrage.smart_client.acompletion", side_effect=side_effect) as mock_completion:
         # Prompt "clinical" triggers 'medical' domain and Tier 3 (via complexity or just domain match)
         # Gatekeeper: medical -> medical domain.
         # Router: Tier 3 target.
         messages = [{"role": "user", "content": "Analyze this clinical data."}]
 
-        response = client.chat.completions.create(messages=messages)
+        response = client.chat.completions.create(messages=messages, user_context=uc)
 
         assert response == mock_response
         # Verify call order
@@ -116,6 +121,10 @@ def test_non_critical_error_does_not_exclude() -> None:
 
     client = engine.get_client()
 
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "user1"
+    uc.groups = []
+
     with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         # Side effect: Always raise BadRequestError
         mock_completion.side_effect = BadRequestError("Bad Request", model="bad-model", llm_provider="bad-provider")
@@ -132,7 +141,7 @@ def test_non_critical_error_does_not_exclude() -> None:
 
             # Fail Open will happen.
             with pytest.raises(BadRequestError):
-                client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
+                client.chat.completions.create(messages=[{"role": "user", "content": "hi"}], user_context=uc)
 
             # Verify 3 attempts on 'bad-model' + 1 attempt on 'fallback'
             # 3 attempts (MAX_RETRIES=3)
@@ -189,6 +198,10 @@ def test_full_exhaustion_fail_open() -> None:
 
     client = engine.get_client()
 
+    uc = MagicMock(spec=UserContext)
+    uc.user_id = "user1"
+    uc.groups = []
+
     with patch("coreason_arbitrage.smart_client.acompletion") as mock_completion:
         # Both fail
         def side_effect(model: str, **kwargs: Any) -> Any:
@@ -204,7 +217,7 @@ def test_full_exhaustion_fail_open() -> None:
         mock_completion.side_effect = side_effect
 
         # Run
-        client.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
+        client.chat.completions.create(messages=[{"role": "user", "content": "hi"}], user_context=uc)
 
         # Verify calls: A and B should both be called.
         # Order depends on dict iteration, but both should be hit before fail open.
