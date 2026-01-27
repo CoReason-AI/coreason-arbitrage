@@ -11,6 +11,7 @@
 from unittest.mock import Mock
 
 import pytest
+from coreason_identity.models import UserContext
 
 from coreason_arbitrage.interfaces import BudgetClient
 from coreason_arbitrage.models import ModelDefinition, ModelTier, RoutingContext
@@ -70,7 +71,7 @@ def router(mock_registry: Mock, mock_budget_client: Mock) -> Router:
 # --- Tests ---
 
 
-def test_route_prioritizes_domain_model(router: Router) -> None:
+def test_route_prioritizes_domain_model(router: Router, user_context: UserContext) -> None:
     """
     Test that if a domain-specific model exists and is requested,
     it is returned regardless of complexity.
@@ -79,24 +80,24 @@ def test_route_prioritizes_domain_model(router: Router) -> None:
     # However, we have a specialized oncology model (Tier 2).
     context = RoutingContext(complexity=0.1, domain="oncology")
 
-    model = router.route(context, user_id="user1")
+    model = router.route(context, user_context=user_context)
 
     assert model.id == "oncology-llama-3"
     assert model.domain == "oncology"
 
 
-def test_route_domain_model_case_insensitive(router: Router) -> None:
+def test_route_domain_model_case_insensitive(router: Router, user_context: UserContext) -> None:
     """
     Test that domain matching is case insensitive.
     """
     context = RoutingContext(complexity=0.1, domain="OnCoLoGy")
 
-    model = router.route(context, user_id="user1")
+    model = router.route(context, user_context=user_context)
 
     assert model.id == "oncology-llama-3"
 
 
-def test_route_fallback_if_domain_model_not_found(router: Router) -> None:
+def test_route_fallback_if_domain_model_not_found(router: Router, user_context: UserContext) -> None:
     """
     Test that if no model exists for the requested domain,
     it falls back to standard complexity-based routing.
@@ -104,13 +105,15 @@ def test_route_fallback_if_domain_model_not_found(router: Router) -> None:
     # Domain 'legal' has no specific model. Complexity 0.1 -> Tier 1.
     context = RoutingContext(complexity=0.1, domain="legal")
 
-    model = router.route(context, user_id="user1")
+    model = router.route(context, user_context=user_context)
 
     assert model.id == "tier1-model"
     assert model.tier == ModelTier.TIER_1_FAST
 
 
-def test_route_fallback_if_domain_model_unhealthy(router: Router, mock_registry: Mock) -> None:
+def test_route_fallback_if_domain_model_unhealthy(
+    router: Router, mock_registry: Mock, user_context: UserContext
+) -> None:
     """
     Test that if the domain model is unhealthy, it falls back to standard routing.
     """
@@ -142,12 +145,14 @@ def test_route_fallback_if_domain_model_unhealthy(router: Router, mock_registry:
     context = RoutingContext(complexity=0.1, domain="oncology")
 
     # Should skip unhealthy oncology model and fallback to Tier 1 (due to low complexity)
-    model = router.route(context, user_id="user1")
+    model = router.route(context, user_context=user_context)
 
     assert model.id == "tier1-model"
 
 
-def test_route_safety_critical_overrides_complexity_but_checked_after_domain_priority(router: Router) -> None:
+def test_route_safety_critical_overrides_complexity_but_checked_after_domain_priority(
+    router: Router, user_context: UserContext
+) -> None:
     """
     If domain is 'safety_critical', it triggers Tier 3 in standard logic.
     But if there was a specific model for 'safety_critical' domain registered,
@@ -187,5 +192,5 @@ def test_route_safety_critical_overrides_complexity_but_checked_after_domain_pri
 
     registry_mock.list_models.side_effect = new_side_effect
 
-    model = router.route(context, user_id="user1")
+    model = router.route(context, user_context=user_context)
     assert model.tier == ModelTier.TIER_3_REASONING

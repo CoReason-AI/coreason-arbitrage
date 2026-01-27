@@ -11,6 +11,7 @@
 from unittest.mock import Mock
 
 import pytest
+from coreason_identity.models import UserContext
 
 from coreason_arbitrage.interfaces import BudgetClient
 from coreason_arbitrage.models import ModelDefinition, ModelTier, RoutingContext
@@ -35,7 +36,7 @@ def router(mock_registry: Mock, mock_budget_client: Mock) -> Router:
     return Router(registry=mock_registry, budget_client=mock_budget_client)
 
 
-def test_economy_mode_boundary(router: Router) -> None:
+def test_economy_mode_boundary(router: Router, user_context: UserContext) -> None:
     """
     Test the boundary condition for Economy Mode.
     Budget < 10% (0.10) triggers downgrade.
@@ -43,6 +44,7 @@ def test_economy_mode_boundary(router: Router) -> None:
     """
     # Setup
     context = RoutingContext(complexity=0.5, domain=None)  # Tier 2 normally
+    user_context.groups = []
 
     # Case 1: Budget 0.10 (10%) -> No Downgrade
     assert isinstance(router.budget_client.get_remaining_budget_percentage, Mock)
@@ -55,7 +57,7 @@ def test_economy_mode_boundary(router: Router) -> None:
     assert isinstance(router.registry.list_models, Mock)
     router.registry.list_models.return_value = [tier2_model]
 
-    model = router.route(context, user_id="user1")
+    model = router.route(context, user_context=user_context)
     assert model.tier == ModelTier.TIER_2_SMART
 
     # Verify we asked for Tier 2
@@ -72,7 +74,7 @@ def test_economy_mode_boundary(router: Router) -> None:
     )
     router.registry.list_models.return_value = [tier1_model]
 
-    model = router.route(context, user_id="user1")
+    model = router.route(context, user_context=user_context)
     assert model.tier == ModelTier.TIER_1_FAST
 
     # Verify we asked for Tier 1
@@ -80,7 +82,7 @@ def test_economy_mode_boundary(router: Router) -> None:
     assert kwargs.get("tier") == ModelTier.TIER_1_FAST
 
 
-def test_domain_priority_bypasses_economy(router: Router) -> None:
+def test_domain_priority_bypasses_economy(router: Router, user_context: UserContext) -> None:
     """
     Test that if a domain-specific model exists, it is selected even if
     Economy Mode would have downgraded the generic tier.
@@ -100,6 +102,7 @@ def test_domain_priority_bypasses_economy(router: Router) -> None:
     - Soft Fallback picks "special-tier2" anyway because it's the only healthy domain model.
     """
     context = RoutingContext(complexity=0.5, domain="specialized")
+    user_context.groups = []
 
     assert isinstance(router.budget_client.get_remaining_budget_percentage, Mock)
     router.budget_client.get_remaining_budget_percentage.return_value = 0.05
@@ -123,14 +126,14 @@ def test_domain_priority_bypasses_economy(router: Router) -> None:
     assert isinstance(router.registry.list_models, Mock)
     router.registry.list_models.side_effect = list_models_side_effect
 
-    model = router.route(context, user_id="user1")
+    model = router.route(context, user_context=user_context)
 
     # It should return the domain model despite Economy Mode
     assert model.id == "special-tier2"
     assert model.tier == ModelTier.TIER_2_SMART
 
 
-def test_domain_multiple_tiers_fallback(router: Router) -> None:
+def test_domain_multiple_tiers_fallback(router: Router, user_context: UserContext) -> None:
     """
     Test selection behavior when multiple domain models exist but none match
     the target tier.
@@ -178,7 +181,7 @@ def test_domain_multiple_tiers_fallback(router: Router) -> None:
     assert isinstance(router.registry.list_models, Mock)
     router.registry.list_models.side_effect = list_models_side_effect
 
-    model = router.route(context, user_id="user1")
+    model = router.route(context, user_context=user_context)
 
     # Should pick the first one
     assert model.id == "code-small"
