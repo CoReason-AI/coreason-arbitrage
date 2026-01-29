@@ -100,12 +100,12 @@ class ChatCompletionRequest(BaseModel):
 # --- Endpoints ---
 
 
-@app.get("/health")
+@app.get("/health")  # type: ignore
 async def health_check() -> Dict[str, str]:
     return {"status": "ready", "routing_engine": "active"}
 
 
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions")  # type: ignore
 async def chat_completions(request: ChatCompletionRequest) -> Any:
     engine: ArbitrageEngine = app.state.engine
 
