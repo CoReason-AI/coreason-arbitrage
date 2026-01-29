@@ -2,16 +2,11 @@ from typing import Any, Dict, List
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from coreason_identity.models import UserContext
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from coreason_arbitrage.server import (
-    app,
-    MockBudgetClient,
-    MockAuditClient,
-    MockFoundryClient
-)
-from coreason_identity.models import UserContext
+from coreason_arbitrage.server import MockAuditClient, MockBudgetClient, MockFoundryClient, app
 
 
 class Usage(BaseModel):
@@ -59,7 +54,9 @@ def test_chat_completions_success(mock_acompletion: AsyncMock) -> None:
 
 def test_chat_completions_permission_error(mock_acompletion: AsyncMock) -> None:
     # Simulate PermissionError (Budget Exceeded)
-    with patch("coreason_arbitrage.smart_client.CompletionsWrapperAsync.create", side_effect=PermissionError("Budget exceeded")):
+    with patch(
+        "coreason_arbitrage.smart_client.CompletionsWrapperAsync.create", side_effect=PermissionError("Budget exceeded")
+    ):
         with TestClient(app) as client:
             payload = {"messages": [{"role": "user", "content": "Hello"}], "user": "test_user"}
             response = client.post("/v1/chat/completions", json=payload)
@@ -69,7 +66,9 @@ def test_chat_completions_permission_error(mock_acompletion: AsyncMock) -> None:
 
 def test_chat_completions_runtime_error(mock_acompletion: AsyncMock) -> None:
     # Simulate RuntimeError (Routing Failed)
-    with patch("coreason_arbitrage.smart_client.CompletionsWrapperAsync.create", side_effect=RuntimeError("No healthy models")):
+    with patch(
+        "coreason_arbitrage.smart_client.CompletionsWrapperAsync.create", side_effect=RuntimeError("No healthy models")
+    ):
         with TestClient(app) as client:
             payload = {"messages": [{"role": "user", "content": "Hello"}], "user": "test_user"}
             response = client.post("/v1/chat/completions", json=payload)
@@ -79,7 +78,9 @@ def test_chat_completions_runtime_error(mock_acompletion: AsyncMock) -> None:
 
 def test_chat_completions_generic_error(mock_acompletion: AsyncMock) -> None:
     # Simulate Generic Exception
-    with patch("coreason_arbitrage.smart_client.CompletionsWrapperAsync.create", side_effect=ValueError("Unexpected error")):
+    with patch(
+        "coreason_arbitrage.smart_client.CompletionsWrapperAsync.create", side_effect=ValueError("Unexpected error")
+    ):
         with TestClient(app) as client:
             payload = {"messages": [{"role": "user", "content": "Hello"}], "user": "test_user"}
             response = client.post("/v1/chat/completions", json=payload)

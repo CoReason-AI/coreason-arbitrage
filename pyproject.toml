@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "coreason_arbitrage"
-version = "0.2.1"
+version = "0.3.0"
 description = "coreason-arbitrage"
 authors = ["Gowtham A Rao <gowtham.rao@coreason.ai>"]
 license = "Prosperity-3.0"
@@ -38,7 +38,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "coreason_arbitrage"
-version = "0.2.1"
+version = "0.3.0"
 description = "coreason-arbitrage"
 readme = "README.md"
 requires-python = ">=3.11"
