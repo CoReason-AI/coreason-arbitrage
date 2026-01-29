@@ -17,6 +17,7 @@ pip install coreason-arbitrage
 ## Features
 
 *   **Intelligent Routing:** Cascading model strategy to select the right model for the right task (Tier 1, Tier 2, Tier 3).
+*   **Server Mode:** Run as a containerized microservice to act as a centralized traffic controller.
 *   **Cost Optimization:** Prevents "Token Burn" by routing simpler tasks to cheaper models and using Economy Mode.
 *   **Resiliency:** Circuit Breaker mechanism to failover to backup providers during outages.
 *   **Provider Agnosticism:** Decoupled from specific vendors, avoiding lock-in.
@@ -26,22 +27,29 @@ See [Product Requirements](docs/product_requirements.md) for more details.
 
 ## Usage
 
+For detailed instructions on using `coreason-arbitrage` as a library or a microservice, please refer to the [Usage Guide](docs/usage.md).
+
+### Quick Start (Library)
+
 ```python
 from coreason_arbitrage.engine import ArbitrageEngine
 
 # Initialize the engine (Singleton)
-# Note: You can optionally configure it with your specific clients
 engine = ArbitrageEngine()
 
 # Get a smart client capable of handling the request
-# This client mimics the OpenAI interface but routes intelligently
 client = engine.get_client()
 
 # Use the client to create a completion
 response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Explain quantum computing in simple terms."}],
-    # Arbitrage routing happens automatically based on content analysis
 )
 
 print(response.choices[0].message.content)
+```
+
+### Quick Start (Server)
+
+```bash
+docker run -p 8000:8000 coreason/arbitrage:v0.3.0
 ```
