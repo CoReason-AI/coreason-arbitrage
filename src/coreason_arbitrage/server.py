@@ -9,19 +9,19 @@
 # Source Code: https://github.com/CoReason-AI/coreason_arbitrage
 
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from coreason_identity.models import UserContext
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from coreason_identity.models import UserContext
 from coreason_arbitrage.engine import ArbitrageEngine
 from coreason_arbitrage.models import ModelDefinition, ModelTier
 from coreason_arbitrage.smart_client import SmartClientAsync
 from coreason_arbitrage.utils.logger import logger
 
-
 # --- Mock Clients ---
+
 
 class MockBudgetClient:
     def check_allowance(self, user_id: str) -> bool:
@@ -62,8 +62,9 @@ class MockFoundryClient:
 
 # --- Lifespan ---
 
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting up coreason-arbitrage server...")
     engine = ArbitrageEngine()
 
@@ -86,6 +87,7 @@ app = FastAPI(title="Coreason Arbitrage", lifespan=lifespan)
 
 # --- Models ---
 
+
 class ChatCompletionRequest(BaseModel):
     messages: List[Dict[str, str]]
     model: Optional[str] = None  # Optional, will be overridden by router often
@@ -97,13 +99,14 @@ class ChatCompletionRequest(BaseModel):
 
 # --- Endpoints ---
 
+
 @app.get("/health")
-async def health_check():
+async def health_check() -> Dict[str, str]:
     return {"status": "ready", "routing_engine": "active"}
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
+async def chat_completions(request: ChatCompletionRequest) -> Any:
     engine: ArbitrageEngine = app.state.engine
 
     # Convert request to dict, excluding user which is passed separately if needed
@@ -116,27 +119,14 @@ async def chat_completions(request: ChatCompletionRequest):
 
     try:
         async with SmartClientAsync(engine) as client:
-            response = await client.chat.completions.create(
-                messages=messages,
-                user=user_id,
-                **request_dict
-            )
+            response = await client.chat.completions.create(messages=messages, user=user_id, **request_dict)
             return response
 
     except PermissionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e)) from e
     except RuntimeError as e:
         # Routing failed
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Request failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
